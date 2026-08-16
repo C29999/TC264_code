@@ -1,0 +1,22 @@
+# 编译产物
+Debug/
+*.o
+*.d
+*.src
+*.elf
+*.hex
+*.map
+*.opt
+
+# IDE 配置（可选保留或删除）
+.settings/
+.vscode/
+*.project
+*.cproject
+*.lsl
+
+# Python 动画产物（如果你不想传）
+*.gif
+*.jpg
+__pycache__/
+*.pyc

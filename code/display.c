@@ -3,7 +3,7 @@
 page_t current_page = PAGE_MAIN;
 uint8 main_select = 0;       // 0：常用 data，1：调参
 uint8 page_changed = 1;
-
+char show_buf[21];
 #define BOLD_TEXT_MAX_LENGTH (20)
 #define BOLD_TEXT_BUFFER_WIDTH (BOLD_TEXT_MAX_LENGTH * 8 + 1)
 static uint16 bold_text_buffer[BOLD_TEXT_BUFFER_WIDTH * 16];
@@ -73,9 +73,7 @@ static void show_red_bold(uint16 x, uint16 y, const char *text, uint16 color)
         }
     }
 
-    /* The buffer is packed to text_width because the RGB565 API has no stride. */
-    ips200_show_rgb565_image(x, y, bold_text_buffer,
-                             text_width, 16, text_width, 16, 0);
+    ips200_show_rgb565_image(x, y, bold_text_buffer,text_width, 16, text_width, 16, 0);
 }
 
 void show_center(const char *text)
@@ -94,7 +92,7 @@ void show_center(const char *text)
     show_red_bold(x, y, text, RGB565_PINK);
 }
 
-void display_drow(void)
+void display_draw(void)
 {
     diplay_main_key();
     if(current_page == PAGE_MAIN)
@@ -116,7 +114,8 @@ void display_drow(void)
         {
             show_red_bold(106, 88, "data", RGB565_RED);
         }
-
+        sprintf(show_buf,"fps:%d",fps);
+        show_red_bold(0,108, show_buf, RGB565_PURPLE);
         if (mt9v03x_finish_flag)
         {
             ips200_show_gray_image(0,0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);

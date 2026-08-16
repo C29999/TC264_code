@@ -11,7 +11,7 @@ extern page_t current_page;
 extern uint8 page_changed;
 void lcd_init(void);
 void show_center(const char *text);
-void display_drow(void);
+void display_draw(void);
 void display_main_drow(void);
 void diplay_main_key(void);
 #endif

@@ -1,4 +1,5 @@
 #include "image.h"
+#include "IfxStm.h"
 #define IMAGE_OTSU_BLOCK_W      (188)  // 每个局部区域的宽度
 #define IMAGE_OTSU_BLOCK_H      (20)  // 每个局部区域的高度
 
@@ -44,7 +45,6 @@ static const int16 edge_dir_frontright[4][2] =
     {-1,  1},
     {-1, -1}
 };
-
 // 保存最终二值化图像，0表示黑色，255表示白色
 /**
  * @brief 对局部图像进行大律法处理
@@ -152,6 +152,7 @@ static uint8 otsu_local_threshold(const uint8 image[MT9V03X_H][MT9V03X_W],uint16
             //如果低灰度类别的像素数量为0或者大于等于总像素数量，说明当前候选灰度值不合适，跳过
         }
 
+        //依次把每个灰度值作为候选灰度值
         fore_rate=(float)(pixel_count-back_count)/(float)pixel_count; //高灰度类别的像素数量占总像素数量的比例
         back_rate=(float)back_count/(float)pixel_count; //低灰度类别的像素数量占总像素数量的比例
         back_mean=(float)back_sum/(float)back_count; //低灰度类别的平均灰度
@@ -225,6 +226,7 @@ void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W])
         }
     }
 
+    
     //遍历整幅图像的每一个像素点
     for(y=0;y<MT9V03X_H;y++)
     {
@@ -295,6 +297,7 @@ static void display_otsu_thresholds(void)
  *
  * @note 该函数本质上是“左手迷宫法/跟墙法”，用于从某个白色起点沿白边线持续搜索并记录路径。
  */
+/*
 void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int16 start_x,int16 start_y,int16 points[][2],uint16 * point_count)
 {
     // 保存输出数组的最大容量。
@@ -308,9 +311,10 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
     uint6 step;
 
     //保存当前的行进方向
+    int16 dir;
 
     //保存联系转弯次数
-
+    int16 turn;
     int16 turn;
         // 检查输入图像、输出数组和数量指针是否有效。
 
@@ -331,8 +335,6 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
         return ;
 
     }
-
-
     //读取调用者的传入数组容量
     max_points=*point_count;
 
@@ -343,5 +345,30 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
         return ;
     }
 
-    if(start_x<0||start_x>=(MT9V03X_))
+    if((start_x<=0)||(start_x>=(MT9V03X_W-1))||(start_y<=0)||(start_y>=(MT9V03X_H-1)))
+    {
+        //启动越界时结束函数
+        return ;
+    }
+
+    //起点必须是白色区域
+    if(image_binary[start_y][start_x]<EDGE_WHITE_THRESHOLD)
+    {
+        //起点不是白色区域时结束函数
+        return ;
+    }
+    X=start_x;//保存起点的横坐标
+    Y=start_y;//保存起点的纵坐标
+
+    //初始方向设置为向上
+    dir =0;
+    //初始转弯次数设置为0
+    turn=0;
+    //初始找到的点数量为0
+    step=0;
+    while((step<max_points)&&(x>0)&&(y>0)&&(x<MT9V03X_W-1)&&(y<MT9V03X_H-1)&&turn<4)
+    {
+        
+    }
 }
+*/

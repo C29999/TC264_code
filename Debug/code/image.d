@@ -340,3 +340,5 @@ image.o :	"D:\\code\\tc264\\Seekfree_TC264_Opensource_Library\\code\init.h"
 "D:\\code\\tc264\\Seekfree_TC264_Opensource_Library\\code\init.h" :
 image.o :	"D:\\code\\tc264\\Seekfree_TC264_Opensource_Library\\code\data.h"
 "D:\\code\\tc264\\Seekfree_TC264_Opensource_Library\\code\data.h" :
+image.o :	"D:\\code\\tc264\\Seekfree_TC264_Opensource_Library\\libraries\\infineon_libraries\\iLLD\\TC26B\\Tricore\\Stm\\Std\IfxStm.h"
+"D:\\code\\tc264\\Seekfree_TC264_Opensource_Library\\libraries\\infineon_libraries\\iLLD\\TC26B\\Tricore\\Stm\\Std\IfxStm.h" :

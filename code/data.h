@@ -3,4 +3,6 @@
 #include "zf_common_headfile.h"
 extern uint8 wifi_ok_flag;
 extern uint8 wifi_flag;
+extern uint8 fps;
+extern uint8 fps_count;
 #endif
