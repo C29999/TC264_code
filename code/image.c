@@ -22,10 +22,10 @@ uint8 image_binary[MT9V03X_H][MT9V03X_W];
 // 0表示向上，1表示向右，2表示向下，3表示向左。
 static const int16 edge_dir_front[4][2] =
 {
-    { 0, -1 },
-    { 1,  0 },
-    { 0,  1 },
-    {-1,  0 }
+    { 0, -1},
+    { 1,  0},
+    { 0,  1},
+    {-1,  0}
 };
 
 // 当前方向的左前方坐标变化表。
@@ -95,12 +95,10 @@ static uint8 otsu_local_threshold(const uint8 image[MT9V03X_H][MT9V03X_W],uint16
             gray_sum+=level; //灰度总和
         }
     }
-
     if(pixel_count==0) //如果像素点总数为0，说明局部区域没有采样到像素点，直接返回默认阈值128
     {
         return 128;
     }
-
     //从小到大查找区域中的最小灰度值
     for(level=0;level<256;level++)
     {
@@ -114,7 +112,6 @@ static uint8 otsu_local_threshold(const uint8 image[MT9V03X_H][MT9V03X_W],uint16
         PS:第一个二维数组是往里面计数，第二个遍历是取的坐标，level：是0-255灰度值，当对应的数组有次数说明在这个矩形内有这个灰度值，那么遍历到最小的就是最小灰度值
         */
     }
-
     max_value = min_value;
 
     for(level=255;level>min_value;level--)
@@ -171,7 +168,6 @@ static uint8 otsu_local_threshold(const uint8 image[MT9V03X_H][MT9V03X_W],uint16
     {
         result=1;
     }
-
     return result; //返回最终计算得到的阈值
 }
 /**
@@ -181,13 +177,12 @@ static uint8 otsu_local_threshold(const uint8 image[MT9V03X_H][MT9V03X_W],uint16
 * @return void
 * @addtogroup 先分块算阈值，然后把每块的阈值给对应的像素点
 */
-
 void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W])
 {
     uint16 block_x;//当前局部区域的横向编号
     uint16 block_y;
 
-    uint16 x;//当前图像像素的横坐标
+    uint16 x;//当前图像像素的横坐标                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
     uint16 y;//当前像素的纵坐标
 
     uint16 x_left;//当前区域左边界
@@ -297,7 +292,6 @@ static void display_otsu_thresholds(void)
  *
  * @note 该函数本质上是“左手迷宫法/跟墙法”，用于从某个白色起点沿白边线持续搜索并记录路径。
  */
-/*
 void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int16 start_x,int16 start_y,int16 points[][2],uint16 * point_count)
 {
     // 保存输出数组的最大容量。
@@ -308,16 +302,14 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
     int16 y;
 
     //保存已经找到的边线点数量
-    uint6 step;
+    uint16 step;
 
     //保存当前的行进方向
     int16 dir;
 
     //保存联系转弯次数
     int16 turn;
-    int16 turn;
-        // 检查输入图像、输出数组和数量指针是否有效。
-
+    //检查输入图像、输出数组和数量指针是否有效。
     if(image_binary==0||(points==0)||(point_count)==0)
     {
         return ;
@@ -335,15 +327,6 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
         return ;
 
     }
-    //读取调用者的传入数组容量
-    max_points=*point_count;
-
-    *point_count=0;
-    if(max_points==0)
-    {
-            //直接结束函数
-        return ;
-    }
 
     if((start_x<=0)||(start_x>=(MT9V03X_W-1))||(start_y<=0)||(start_y>=(MT9V03X_H-1)))
     {
@@ -357,8 +340,8 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
         //起点不是白色区域时结束函数
         return ;
     }
-    X=start_x;//保存起点的横坐标
-    Y=start_y;//保存起点的纵坐标
+    x=start_x;//保存起点的横坐标
+    y=start_y;//保存起点的纵坐标
 
     //初始方向设置为向上
     dir =0;
@@ -371,4 +354,3 @@ void findline_lefthand_binary(const uint8 image_binary[MT9V03X_H][MT9V03X_W],int
         
     }
 }
-*/

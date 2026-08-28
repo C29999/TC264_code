@@ -1,0 +1,685 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body{font-family:Arial,"Microsoft YaHei",sans-serif;line-height:1.55;max-width:980px;margin:40px auto;padding:0 16px;color:#222}
+img{max-width:100%;height:auto}
+pre{background:#f6f8fa;padding:12px;overflow:auto;border-radius:6px}
+code{font-family:Consolas,monospace}
+</style>
+</head>
+<body>
+<h1>LVGL 小白入门笔记</h1>
+<blockquote>
+<p>这是给第一次碰 <code>LVGL</code> 的你写的，目标不是“看懂一点点”，而是“看完能自己改这份小车工程的 UI”。</p>
+</blockquote>
+<p><img alt="当前主界面效果" src="C:/Users/10503/AppData/Local/Temp/codex-clipboard-eae053dc-09af-4bd3-9a6a-ac2cbe12c9fb.jpg" /></p>
+<hr />
+<h2>0. 先说结论</h2>
+<p>这份工程的 UI 不是“到处写 <code>lv_label_set_text</code>”那种散装写法，而是一个很明确的结构：</p>
+<ul>
+<li><code>code/lvgl_demo.h</code> 定义“外部能调用什么”</li>
+<li><code>code/lvgl_demo.c</code> 真正创建和刷新界面</li>
+<li><code>code/init.c</code> 负责上电流程，先初始化，再切页面</li>
+<li><code>code/wifi_spi.c</code>、<code>code/display.c</code>、<code>code/image.c</code> 负责业务数据</li>
+<li>业务层只改 <code>g_ui</code>，UI 层每 <code>100ms</code> 看一次 <code>g_ui</code> 再刷新屏幕</li>
+</ul>
+<p>你可以把它理解成：</p>
+<ul>
+<li>业务层：我有个状态</li>
+<li>UI 层：我看状态决定画什么</li>
+</ul>
+<p>这就是“传参输出”的核心思想。</p>
+<hr />
+<h2>1. 这工程到底在干嘛</h2>
+<p>这是一套跑在 TC264 上的车载小屏 UI。</p>
+<p>它大致做三件事：</p>
+<ol>
+<li>开机初始化时显示“当前初始化进度”</li>
+<li>进入主界面后显示图像、菜单、状态</li>
+<li>业务模块只负责把数据塞进 <code>g_ui</code>，不直接碰 LVGL 控件</li>
+</ol>
+<p>这样写的好处很大：</p>
+<ul>
+<li>业务代码不会和 UI 代码缠成一团</li>
+<li>切页面时不会到处改控件</li>
+<li>后面你自己加页面，会比较稳</li>
+</ul>
+<pre><code class="language-mermaid">flowchart LR
+    A[业务层: wifi_spi / image / display] --&gt; B[g_ui 状态]
+    B --&gt; C[lvgl_demo.c 刷新线程]
+    C --&gt; D[LVGL 控件]
+    D --&gt; E[IPS200 屏幕]
+</code></pre>
+<hr />
+<h2>2. LVGL 是什么</h2>
+<p><code>LVGL</code> 是一个嵌入式图形库。</p>
+<p>你可以把它理解成：</p>
+<ul>
+<li><code>label</code>：显示文字</li>
+<li><code>img</code>：显示图片</li>
+<li><code>btn</code>：按钮</li>
+<li><code>bar</code>：进度条</li>
+<li><code>obj</code>：最基础的容器/盒子</li>
+</ul>
+<p>LVGL 的核心思路是：</p>
+<ol>
+<li>先创建对象</li>
+<li>再设置属性</li>
+<li>再让它显示在屏幕上</li>
+<li>后续修改对象属性，界面就跟着变</li>
+</ol>
+<p>不是你每次都“重画整张屏”，而是改对象状态。</p>
+<hr />
+<h2>3. 先看本工程的文件分工</h2>
+<h3>3.1 <code>code/lvgl_demo.h</code></h3>
+<p>这个头文件负责：</p>
+<ul>
+<li>定义页面状态结构体</li>
+<li>对外声明 <code>g_ui</code></li>
+<li>对外声明 UI 接口函数</li>
+</ul>
+<p>你可以把它看成“UI 的说明书”。</p>
+<h3>3.2 <code>code/lvgl_demo.c</code></h3>
+<p>这个源文件负责：</p>
+<ul>
+<li>初始化 LVGL</li>
+<li>创建初始化页</li>
+<li>创建演示页</li>
+<li>每 100ms 刷新一次界面</li>
+<li>根据 <code>g_ui</code> 画内容</li>
+</ul>
+<p>这就是 UI 的主战场。</p>
+<h3>3.3 <code>code/init.c</code></h3>
+<p>这个文件负责系统上电：</p>
+<ul>
+<li>初始化硬件</li>
+<li>初始化 LVGL</li>
+<li>先显示初始化页</li>
+<li>再切到主页面</li>
+</ul>
+<h3>3.4 <code>code/wifi_spi.c</code></h3>
+<p>这个文件负责 WIFI 和相关业务。</p>
+<p>它不应该自己去创建控件，只应该调用：</p>
+<ul>
+<li><code>ui_init_set_step</code></li>
+<li><code>ui_init_set_result</code></li>
+<li><code>ui_demo_set_wifi_ok</code></li>
+</ul>
+<h3>3.5 <code>code/image.c</code></h3>
+<p>这个文件负责图像处理：</p>
+<ul>
+<li>灰度图转二值图</li>
+<li>找线</li>
+<li>算阈值</li>
+</ul>
+<p>它处理完后，把结果写进图像数组，UI 再拿去显示。</p>
+<pre><code class="language-mermaid">flowchart TB
+    P[上电] --&gt; I[init.c]
+    I --&gt; L[lvgl_init]
+    I --&gt; W[WIFI 初始化]
+    I --&gt; C[摄像头初始化]
+    I --&gt; S[ui_switch_page(PAGE_DEMO)]
+    S --&gt; D[演示页]
+</code></pre>
+<hr />
+<h2>4. LVGL 的最小心智模型</h2>
+<p>初学者最容易乱的地方，是以为 UI 跟普通 C 程序一样“画一次就结束”。</p>
+<p>其实 LVGL 是状态驱动的。</p>
+<h3>4.1 先有对象</h3>
+<p>比如：</p>
+<pre><code class="language-c">lv_obj_t *label = lv_label_create(lv_scr_act());
+</code></pre>
+<p>意思是：</p>
+<ul>
+<li>在当前屏幕上创建一个标签</li>
+</ul>
+<h3>4.2 再设内容</h3>
+<pre><code class="language-c">lv_label_set_text(label, &quot;hello&quot;);
+</code></pre>
+<p>意思是：</p>
+<ul>
+<li>这个标签现在显示 hello</li>
+</ul>
+<h3>4.3 再设位置</h3>
+<pre><code class="language-c">lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 20);
+</code></pre>
+<p>意思是：</p>
+<ul>
+<li>把它放到屏幕上方中间，偏移 20 像素</li>
+</ul>
+<h3>4.4 改状态就会变</h3>
+<p>如果你后面再写：</p>
+<pre><code class="language-c">lv_label_set_text(label, &quot;world&quot;);
+</code></pre>
+<p>那它就从 hello 变成 world。</p>
+<p>这就是 LVGL 的基本玩法。</p>
+<h3>4.5 一张图看懂对象关系</h3>
+<pre><code class="language-mermaid">flowchart TD
+    SCR[lv_scr_act 当前屏幕]
+    BOX1[box gray]
+    BOX2[box binary]
+    IMG1[img gray]
+    IMG2[img binary]
+    L1[label gray]
+    L2[label binary]
+    SCR --&gt; BOX1 --&gt; IMG1
+    SCR --&gt; BOX2 --&gt; IMG2
+    SCR --&gt; L1
+    SCR --&gt; L2
+</code></pre>
+<hr />
+<h2>5. 本工程的“传参输出”思想</h2>
+<p>你说的“传参输出”，在这工程里更像是：</p>
+<ul>
+<li>外部模块把参数传给 UI 接口</li>
+<li>UI 接口把参数写进 <code>g_ui</code></li>
+<li>刷新线程根据 <code>g_ui</code> 输出到屏幕</li>
+</ul>
+<p>不是函数直接把值返回给你，而是“通过状态传递，最终显示出来”。</p>
+<p>比如：</p>
+<pre><code class="language-c">ui_demo_set_fps(30);
+</code></pre>
+<p>这句不是“立即画出 fps:30”，而是：</p>
+<ul>
+<li>把 <code>30</code> 存进 <code>g_ui.demo.fps_val</code></li>
+<li>下次 UI 刷新时，<code>page_demo_refresh()</code> 读到它</li>
+<li>再把它显示出来</li>
+</ul>
+<p>这是一种很常见的嵌入式 UI 结构。</p>
+<pre><code class="language-c">// 业务层
+ui_demo_set_fps(30);
+ui_demo_set_img_ready(1);
+
+// UI 层 100ms 后读到
+// g_ui.demo.fps_val = 30
+// g_ui.demo.img_ready = 1
+</code></pre>
+<hr />
+<h2>6. <code>g_ui</code> 是什么</h2>
+<p><code>g_ui</code> 是全局 UI 状态中心。</p>
+<p>在 <code>code/lvgl_demo.h</code> 里你能看到它的定义结构，里面大体有两块：</p>
+<ul>
+<li><code>init</code>：初始化页状态</li>
+<li><code>demo</code>：演示页状态</li>
+</ul>
+<h3>6.1 <code>init</code></h3>
+<p>保存初始化页要显示的内容，比如：</p>
+<ul>
+<li>当前模块名</li>
+<li>当前步骤</li>
+<li>总步骤数</li>
+<li>成功/失败</li>
+</ul>
+<h3>6.2 <code>demo</code></h3>
+<p>保存演示页要显示的内容，比如：</p>
+<ul>
+<li>当前子页</li>
+<li>菜单选项</li>
+<li>WIFI 状态</li>
+<li>帧率</li>
+<li>图像是否更新</li>
+</ul>
+<p>你以后自己扩 UI，第一反应应该是：</p>
+<p>“这个状态应该放进 <code>g_ui</code> 的哪里？”</p>
+<hr />
+<h2>7. 页面切换是怎么做的</h2>
+<p>在 <code>code/lvgl_demo.c</code> 里有：</p>
+<pre><code class="language-c">void ui_switch_page(int new_page)
+</code></pre>
+<p>它做三件事：</p>
+<ol>
+<li>清空当前屏幕</li>
+<li>修改 <code>g_ui.page</code></li>
+<li>调用 <code>lvgl_demo()</code> 重建页面</li>
+</ol>
+<p>这个流程非常重要。</p>
+<p>也就是说，页面不是靠“隐藏一堆控件”硬撑着切换的，而是：</p>
+<ul>
+<li>旧页面清掉</li>
+<li>新页面创建出来</li>
+</ul>
+<p>这比“堆一堆对象再互相藏”更稳。</p>
+<hr />
+<h2>8. 初始化页怎么工作的</h2>
+<p>初始化页在 <code>page_init_create()</code> 里创建。</p>
+<p>它有这些对象：</p>
+<ul>
+<li>顶部标题 <code>System Init</code></li>
+<li>中间粉色状态字</li>
+<li>步骤文字</li>
+<li>底部进度条</li>
+</ul>
+<p>刷新时走 <code>page_init_refresh()</code>：</p>
+<ul>
+<li>看 <code>wifi_stage</code></li>
+<li>看 <code>wifi_result</code></li>
+<li>决定显示什么文字</li>
+</ul>
+<p>例如：</p>
+<ul>
+<li><code>WIFI SPI Init...</code></li>
+<li><code>WIFI Connect OK</code></li>
+<li><code>CAM FAIL</code></li>
+<li><code>ALL READY!</code></li>
+</ul>
+<p>这就是一个典型的“状态机 + UI 输出”。</p>
+<hr />
+<h2>9. 演示页现在怎么工作的</h2>
+<p>你现在这份 demo 页已经被我整理成比较干净的结构了。</p>
+<p>它只保留：</p>
+<ul>
+<li>左侧灰度图</li>
+<li>右侧二值图</li>
+<li>两个标题：<code>gray</code> 和 <code>binary</code></li>
+</ul>
+<p>不再画：</p>
+<ul>
+<li><code>main</code></li>
+<li><code>data</code></li>
+<li><code>tuning</code></li>
+<li><code>wifi ok/fail</code></li>
+<li><code>fps</code></li>
+</ul>
+<p>你可以把现在的演示页理解成“最小可用图像页”：</p>
+<ul>
+<li>左图负责显示原图</li>
+<li>右图负责显示处理后的图</li>
+<li>标题只做视觉提示</li>
+</ul>
+<p>这样你就先把“图像显示”这件事单独跑通了。</p>
+<p>这是为了避免你现在看见一堆旧 UI 叠在一起。</p>
+<h3>9.1 创建</h3>
+<p><code>page_demo_create()</code>：</p>
+<ul>
+<li>先 <code>lv_obj_clean(scr)</code></li>
+<li>创建两个图容器</li>
+<li>创建两张 <code>lv_img</code></li>
+<li>创建两个标题</li>
+</ul>
+<h3>9.2 刷新</h3>
+<p><code>page_demo_refresh()</code>：</p>
+<ul>
+<li>如果 <code>g_ui.demo.img_ready</code> 或 <code>mt9v03x_finish_flag</code> 为真</li>
+<li>重新 <code>lv_img_set_src</code></li>
+<li>让 LVGL 重绘图像</li>
+</ul>
+<hr />
+<h2>10. 这份工程里最重要的几个接口</h2>
+<h3>10.1 <code>lvgl_init()</code></h3>
+<p>作用：</p>
+<ul>
+<li>初始化 LVGL</li>
+<li>初始化显示驱动</li>
+<li>创建 100ms 刷新定时器</li>
+</ul>
+<h3>10.2 <code>lvgl_demo()</code></h3>
+<p>作用：</p>
+<ul>
+<li>按 <code>g_ui.page</code> 创建对应页面</li>
+</ul>
+<h3>10.3 <code>ui_switch_page(int new_page)</code></h3>
+<p>作用：</p>
+<ul>
+<li>清屏</li>
+<li>切页</li>
+<li>重建页面</li>
+</ul>
+<h3>10.4 <code>ui_init_begin(int total_modules)</code></h3>
+<p>作用：</p>
+<ul>
+<li>告诉 UI 一共有几个初始化模块</li>
+</ul>
+<h3>10.5 <code>ui_init_set_module(const char *module_name, int module_steps)</code></h3>
+<p>作用：</p>
+<ul>
+<li>切换当前初始化模块</li>
+</ul>
+<h3>10.6 <code>ui_init_set_step(const char *step_text, int step_index)</code></h3>
+<p>作用：</p>
+<ul>
+<li>更新当前步骤文字</li>
+</ul>
+<h3>10.7 <code>ui_init_set_result(int success)</code></h3>
+<p>作用：</p>
+<ul>
+<li>设置模块成功或失败</li>
+<li>推进大进度条</li>
+</ul>
+<h3>10.8 <code>ui_demo_set_fps(int fps)</code></h3>
+<p>作用：</p>
+<ul>
+<li>设置帧率</li>
+</ul>
+<h3>10.9 <code>ui_demo_set_img_ready(int ready)</code></h3>
+<p>作用：</p>
+<ul>
+<li>告诉 UI 新图像准备好了</li>
+</ul>
+<h3>10.10 接口怎么串起来</h3>
+<pre><code class="language-mermaid">sequenceDiagram
+    participant B as 业务层
+    participant G as g_ui
+    participant U as ui_refresh_cb
+    participant L as LVGL
+    B-&gt;&gt;G: ui_demo_set_fps(30)
+    B-&gt;&gt;G: ui_demo_set_img_ready(1)
+    U-&gt;&gt;G: 读取状态
+    U-&gt;&gt;L: lv_label_set_text / lv_img_set_src
+</code></pre>
+<hr />
+<h2>11. 业务层怎么把数据“传给”UI</h2>
+<p>你可以理解成四步：</p>
+<ol>
+<li>业务模块算出结果</li>
+<li>调 UI 接口</li>
+<li>UI 接口写进 <code>g_ui</code></li>
+<li>定时刷新函数显示出来</li>
+</ol>
+<p>例如：</p>
+<pre><code class="language-c">ui_demo_set_fps(27);
+ui_demo_set_img_ready(1);
+</code></pre>
+<p>这表示：</p>
+<ul>
+<li>帧率是 27</li>
+<li>有新图像了</li>
+</ul>
+<p>UI 线程随后会把它显示在屏幕上。</p>
+<hr />
+<h2>12. 怎么从 0 开始看懂这工程</h2>
+<p>你别急着看所有代码。</p>
+<p>按这个顺序最稳：</p>
+<h3>第一步：先看头文件</h3>
+<p>先看：</p>
+<ul>
+<li><code>code/lvgl_demo.h</code></li>
+</ul>
+<p>重点盯这几样：</p>
+<ul>
+<li><code>ui_state_t</code></li>
+<li><code>g_ui</code></li>
+<li>对外接口声明</li>
+</ul>
+<h3>第二步：看初始化流程</h3>
+<p>看：</p>
+<ul>
+<li><code>code/init.c</code></li>
+</ul>
+<p>重点看：</p>
+<ul>
+<li>什么时候 <code>lvgl_init()</code></li>
+<li>什么时候 <code>lvgl_demo()</code></li>
+<li>什么时候切到 <code>PAGE_DEMO</code></li>
+</ul>
+<h3>第三步：看 UI 主文件</h3>
+<p>看：</p>
+<ul>
+<li><code>code/lvgl_demo.c</code></li>
+</ul>
+<p>重点看：</p>
+<ul>
+<li><code>lvgl_init</code></li>
+<li><code>ui_refresh_cb</code></li>
+<li><code>ui_switch_page</code></li>
+<li><code>page_init_create</code></li>
+<li><code>page_init_refresh</code></li>
+<li><code>page_demo_create</code></li>
+<li><code>page_demo_refresh</code></li>
+</ul>
+<h3>第四步：看业务模块怎么调用</h3>
+<p>看：</p>
+<ul>
+<li><code>code/wifi_spi.c</code></li>
+<li><code>code/image.c</code></li>
+</ul>
+<p>重点看：</p>
+<ul>
+<li>哪些地方调用了 <code>ui_*</code></li>
+</ul>
+<hr />
+<h2>13. LVGL 的常用对象</h2>
+<h3>13.1 <code>lv_obj</code></h3>
+<p>基础容器。</p>
+<p>你可以给它设置：</p>
+<ul>
+<li>大小</li>
+<li>位置</li>
+<li>背景</li>
+<li>边框</li>
+</ul>
+<h3>13.2 <code>lv_label</code></h3>
+<p>显示文字。</p>
+<p>常见接口：</p>
+<pre><code class="language-c">lv_label_create(parent);
+lv_label_set_text(label, &quot;text&quot;);
+</code></pre>
+<h3>13.3 <code>lv_img</code></h3>
+<p>显示图片。</p>
+<p>常见接口：</p>
+<pre><code class="language-c">lv_img_create(parent);
+lv_img_set_src(img, &amp;dsc);
+</code></pre>
+<h3>13.4 <code>lv_bar</code></h3>
+<p>进度条。</p>
+<p>常见接口：</p>
+<pre><code class="language-c">lv_bar_create(parent);
+lv_bar_set_value(bar, value, LV_ANIM_ON);
+</code></pre>
+<hr />
+<h2>14. LVGL 对象树是什么</h2>
+<p>LVGL 不是每个控件都独立存在，它有“父子关系”。</p>
+<p>比如：</p>
+<pre><code class="language-c">lv_obj_t *box = lv_obj_create(scr);
+lv_obj_t *img = lv_img_create(box);
+</code></pre>
+<p>这表示：</p>
+<ul>
+<li><code>img</code> 是 <code>box</code> 的子对象</li>
+</ul>
+<p>如果你清掉 <code>box</code>，它下面的子对象也会跟着没。</p>
+<p>这个规则很重要。</p>
+<hr />
+<h2>15. 为什么要 <code>lv_obj_clean</code></h2>
+<p><code>lv_obj_clean(scr)</code> 的意思是：</p>
+<ul>
+<li>清掉这个屏幕上的所有对象</li>
+</ul>
+<p>它适合切页时用。</p>
+<p>这样做的好处：</p>
+<ul>
+<li>不会留下上一页残影</li>
+<li>不会重复创建对象</li>
+<li>逻辑比较干净</li>
+</ul>
+<hr />
+<h2>16. 为什么你会看到“重叠”</h2>
+<p>通常有四种原因：</p>
+<ol>
+<li>旧页面没清掉</li>
+<li>同一个页面被重复创建</li>
+<li>业务层在别处也在直接画旧 UI</li>
+<li>刷新函数还在改已经不该存在的对象</li>
+</ol>
+<p>你这次图里那种感觉，最像前两种。</p>
+<hr />
+<h2>17. 本工程现在推荐的改法</h2>
+<p>我建议你把 UI 分成两层：</p>
+<ul>
+<li>结构层：页面创建和布局</li>
+<li>数据层：业务状态输入</li>
+</ul>
+<p>以后你改 UI，尽量遵守这个套路：</p>
+<ol>
+<li>先改 <code>g_ui</code></li>
+<li>再改 <code>page_*_refresh</code></li>
+<li>尽量少让业务层直接碰 LVGL 对象</li>
+</ol>
+<p>这样以后不容易炸。</p>
+<hr />
+<h2>18. 你自己纯手写一个小车 UI 的顺序</h2>
+<p>如果从零重写，我建议你按这个顺序：</p>
+<h3>18.1 先做最小页面</h3>
+<p>先只做：</p>
+<ul>
+<li>一个标题</li>
+<li>一个状态字</li>
+<li>一个进度条</li>
+</ul>
+<h3>18.2 再加初始化状态</h3>
+<p>做：</p>
+<ul>
+<li><code>Step 1 / 4</code></li>
+<li><code>OK / FAIL</code></li>
+</ul>
+<h3>18.3 再加演示页</h3>
+<p>做：</p>
+<ul>
+<li>一张图</li>
+<li>两张图</li>
+<li>帧率</li>
+</ul>
+<h3>18.4 再加页面切换</h3>
+<p>做：</p>
+<ul>
+<li><code>PAGE_INIT</code></li>
+<li><code>PAGE_DEMO</code></li>
+</ul>
+<h3>18.5 再加业务数据</h3>
+<p>把 WIFI、摄像头、找线、阈值这些状态，逐个接入 <code>g_ui</code></p>
+<h3>18.6 建议你按这个里程碑练</h3>
+<ol>
+<li>只显示一行文字</li>
+<li>只显示一张图</li>
+<li>一图一文</li>
+<li>加页面切换</li>
+<li>加初始化页</li>
+<li>加多状态显示</li>
+<li>加业务驱动刷新</li>
+</ol>
+<p>每一步都比“直接做完整车机 UI”更容易成功。</p>
+<hr />
+<h2>19. 手写 UI 时最容易犯的错</h2>
+<h3>错误 1：业务代码直接画屏</h3>
+<p>不要让 <code>wifi_spi.c</code> 直接创建控件。</p>
+<h3>错误 2：页面对象重复建</h3>
+<p>每次切页前记得清理旧对象。</p>
+<h3>错误 3：刷新函数里乱改父对象</h3>
+<p>尽量固定对象层次。</p>
+<h3>错误 4：状态没统一</h3>
+<p>不要一部分状态存在局部变量，一部分存在全局。</p>
+<h3>错误 5：图像缓冲和显示对象混着改</h3>
+<p>图像数据和 <code>lv_img</code> 对象是两回事。</p>
+<hr />
+<h2>20. 图像显示怎么理解</h2>
+<p>你工程里的图像不是“直接拷贝成图片文件”，而是：</p>
+<ul>
+<li>摄像头给出原始数组</li>
+<li><code>image.c</code> 处理后生成二值图数组</li>
+<li><code>lv_img_dsc_t</code> 只是告诉 LVGL 去哪里读数据</li>
+</ul>
+<p>这意味着：</p>
+<ul>
+<li>你改数组内容，下一次显示就变</li>
+<li>不需要每次都重新申请大块图片资源</li>
+</ul>
+<hr />
+<h2>21. <code>lv_img_dsc_t</code> 是什么</h2>
+<p>它是图片描述符。</p>
+<p>简单理解：</p>
+<ul>
+<li>告诉 LVGL 图片宽多少</li>
+<li>高多少</li>
+<li>格式是什么</li>
+<li>数据在哪</li>
+</ul>
+<p>你现在看到的两个图：</p>
+<ul>
+<li><code>s_demo_gray_dsc</code></li>
+<li><code>s_demo_binary_dsc</code></li>
+</ul>
+<p>本质都是“描述原始图像数据”的小结构。</p>
+<hr />
+<h2>22. 为什么要 100ms 刷新</h2>
+<p><code>ui_refresh_cb</code> 每 100ms 跑一次。</p>
+<p>这样做有几个原因：</p>
+<ul>
+<li>不需要业务代码自己刷屏</li>
+<li>UI 更新节奏稳定</li>
+<li>不会因为某个模块阻塞而完全卡死</li>
+</ul>
+<p>你可以把它理解成：</p>
+<ul>
+<li>UI 有自己的“心跳”</li>
+</ul>
+<hr />
+<h2>23. 如果你想继续扩展</h2>
+<p>以后你可以往 <code>g_ui</code> 里继续加：</p>
+<ul>
+<li>电机状态</li>
+<li>电池电压</li>
+<li>蓝牙状态</li>
+<li>车速</li>
+<li>路线模式</li>
+<li>阈值参数</li>
+</ul>
+<p>然后在刷新函数里对应显示。</p>
+<p>这就是“状态驱动 UI”的自然扩展方式。</p>
+<hr />
+<h2>24. 推荐你先掌握的 LVGL API</h2>
+<p>先把这几个吃透：</p>
+<ul>
+<li><code>lv_obj_create</code></li>
+<li><code>lv_label_create</code></li>
+<li><code>lv_label_set_text</code></li>
+<li><code>lv_img_create</code></li>
+<li><code>lv_img_set_src</code></li>
+<li><code>lv_bar_create</code></li>
+<li><code>lv_bar_set_value</code></li>
+<li><code>lv_obj_align</code></li>
+<li><code>lv_obj_set_pos</code></li>
+<li><code>lv_obj_set_size</code></li>
+<li><code>lv_obj_clean</code></li>
+</ul>
+<p>这些够你写很多基础 UI 了。</p>
+<hr />
+<h2>25. 读代码时的建议顺序</h2>
+<p>你可以一边看一边做笔记：</p>
+<ol>
+<li><code>g_ui</code> 里有哪些状态</li>
+<li>每个状态是谁在改</li>
+<li>刷新函数怎么读这些状态</li>
+<li>最终屏幕上怎么显示</li>
+</ol>
+<p>这条线理顺，你就真的入门了。</p>
+<hr />
+<h2>26. 你现在最该记住的一句话</h2>
+<blockquote>
+<p>业务只管改状态，UI 只管读状态。</p>
+</blockquote>
+<p>这句话你先记住，后面整个工程都会顺很多。</p>
+<hr />
+<h2>27. 之后你可以自己动手改什么</h2>
+<p>你可以先试这些小改动：</p>
+<ul>
+<li>把左上角标题换成车名</li>
+<li>把图像位置再微调</li>
+<li>给初始化页加更多步骤文字</li>
+<li>给 demo 页加电压显示</li>
+<li>做一个纯文本状态页</li>
+</ul>
+<p>每改一个点，都按“状态输入 -&gt; 刷新输出”来想。</p>
+<hr />
+<h2>28. 结尾</h2>
+<p>这份工程本质上已经给你搭好了骨架。</p>
+<p>你接下来要做的，不是一下子把所有 LVGL 都吃掉，而是：</p>
+<ul>
+<li>先看懂状态流</li>
+<li>再看懂页面流</li>
+<li>再自己加一小块 UI</li>
+<li>最后慢慢替换成你想要的整套车载界面</li>
+</ul>
+<p>你已经到能开始真正改 UI 的阶段了。</p>
+</body>
+</html>

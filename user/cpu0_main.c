@@ -33,6 +33,10 @@
 * 2022-09-15       pudding            first version
 ********************************************************************************************************************/
 #include "zf_common_headfile.h"
+#include "lvgl_demo.h"
+#include "wifi_spi.h"
+#include "image.h"
+
 #pragma section all "cpu0_dsram"
 // 本文件内（#pragma section all restore）之间的所有变量将被分配到 CPU0 的 RAM 中
 
@@ -40,48 +44,31 @@
 // 以下区域是可扩展区域  完成用户所需的代码逻辑或测试功能等函数
 // 以下区域是可扩展区域  完成用户所需的代码逻辑或测试功能等函数
 
+/* mt9v03x 摄像头驱动全局状态 */
+
 // **************************** 代码区域 ****************************
 int core0_main(void)
 {
     clock_init();
     debug_init();
-
-    system_init();
-
-    ips200_set_font(IPS200_8X16_FONT);
-
-    // 摄像头初始化成功返回 0，失败返回 非 0
-    while (mt9v03x_init())
-    {
-        show_center("mt9v03x fall");
-
-        system_delay_ms(500);
-        ips200_clear();
-    }
-
-        show_center("mt9v03x success");
-
-    system_delay_ms(500);
-    ips200_clear();
+    system_init();                     // 内部已做：LVGL初始化 + WIFI初始化 + 摄像头初始化 + 切到主界面
 
     cpu_wait_event_ready();
+    while (TRUE)
+    {
+        if (mt9v03x_finish_flag)
+        {
+            image_threshold(mt9v03x_image); 
+        }
+        display_draw();
+        if (g_ui.power_on == POWER_ON) {
+            lv_task_handler();
+            system_delay_ms(5);
+        } else {
+            system_delay_ms(1);          /* 关屏状态：最多 delay 1ms，CPU 全力跑业务 */
+        }
+    }
 
-while (TRUE)
-{
-    if (mt9v03x_finish_flag)
-    {
-        image_threshold(mt9v03x_image);
-        display_draw();
-        fps_count++;
-       // wifi_debug();
-        mt9v03x_finish_flag = 0;
-    }
-    else
-    {
-        wifi_debug();
-        display_draw();
-    }
-}
 }
 
 #pragma section all restore

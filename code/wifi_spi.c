@@ -1,12 +1,13 @@
 #include "wifi_spi.h"
+#include "lvgl_demo.h"
 #include "math.h"
 #include <stdio.h>
 #define PAI 3.1415926f
 #define AMPLITUDE 100
-#define STEP      0.1f
+#define STEP 0.1f
 
 static float sin_phase = 0.0f;
-static char tx_buf[48];
+static char tx_buf[48] __attribute__((unused));
 
 static int SinWithPhase(float phase_offset)
 {
@@ -20,7 +21,7 @@ int Sin(void)
     value = SinWithPhase(0.0f);
 
     sin_phase += STEP;
-    if(sin_phase >= 2.0f * PAI)
+    if (sin_phase >= 2.0f * PAI)
     {
         sin_phase -= 2.0f * PAI;
     }
@@ -34,73 +35,77 @@ void my_wifi_spi_init(void)
 
     wifi_ok_flag = 0;
     wifi_flag = 0;
+    wifi_init_flag = 0;
+    wifi_stage = 0;
+    wifi_result = 0;
 
-    // Initialize the module only. This separates SPI hardware errors from
-    // WiFi authentication errors.
+    /* ---- 第 1 阶段：SPI 初始化 ---- */
+    wifi_stage = 1;
+    wifi_result = 0;
+    delay_with_refresh_ms(200);
     if (wifi_spi_init(NULL, NULL) != 0)
     {
-        show_center("WIFI INIT FAIL");
-        system_delay_ms(500);
-        ips200_clear();
+        wifi_result = 2;
+        wifi_stage = 255;
+        delay_with_refresh_ms(500);
         return;
     }
+    wifi_result = 1;
+    delay_with_refresh_ms(200);
 
-    show_center("WIFI INIT OK");
-    system_delay_ms(500);
-    ips200_clear();
-
-    // Connect to the 2.4 GHz hotspot. Retry several times in case the
-    // module is still reconnecting to the access point.
+    /* ---- 第 2 阶段：WIFI 连接（最多重试 3 次）---- */
+    wifi_stage = 2;
+    wifi_result = 0;
+    delay_with_refresh_ms(200);
     for (retry_count = 0; retry_count < 3; retry_count++)
     {
         if (wifi_spi_wifi_connect("chun", "12345678") == 0)
         {
             break;
         }
-
-        show_center("WIFI RETRY");
-        system_delay_ms(1000);
-        ips200_clear();
+        delay_with_refresh_ms(500); // 重试等待也要刷新
     }
 
     if (retry_count >= 3)
     {
-        show_center("WIFI FAIL");
-        system_delay_ms(500);
-        ips200_clear();
+        wifi_result = 2;
+        wifi_stage = 255;
+        delay_with_refresh_ms(500);
         return;
     }
+    wifi_result = 1;
+    delay_with_refresh_ms(200);
 
-    show_center("WIFI OK");
-    system_delay_ms(500);
-    ips200_clear();
-
-    // Try once only. Do not block forever before the PC connects.
-    if (wifi_spi_socket_connect("TCP", "192.168.179.248","8080","6060")!= 0)
+    /* ---- 第 3 阶段：TCP 连接 ---- */
+    wifi_stage = 3;
+    wifi_result = 0;
+    delay_with_refresh_ms(200);
+    if (wifi_spi_socket_connect("TCP", "192.168.108.248", "8080", "6060") != 0)
     {
-        show_center("TCP FAIL");
-        system_delay_ms(500);
-        ips200_clear();
+        wifi_result = 2;
+        wifi_stage = 255;
+        delay_with_refresh_ms(500);
         return;
     }
-    else 
+    else
     {
         wifi_ok_flag = 1;
     }
     seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIFI_SPI);
     wifi_flag = 1;
+    wifi_result = 1;
+    delay_with_refresh_ms(200);
 
-    show_center("TCP OK");
-    system_delay_ms(500);
-    ips200_clear();
+    /* ---- 第 4 阶段：完成 ---- */
+    wifi_stage = 4;
+    wifi_init_flag = 1;
+    delay_with_refresh_ms(200 + 500);
 }
 void wifi_image_send(void)
 {
     static seekfree_assistant_camera_struct camera_obj;
     static uint8 camera_configured = 0;
 
-    // Consume each completed camera frame once. The display can read the
-    // frame before this function clears the flag in the main loop.
     if (!mt9v03x_finish_flag)
     {
         return;
@@ -114,12 +119,7 @@ void wifi_image_send(void)
 
     if (!camera_configured)
     {
-        seekfree_assistant_camera_config(
-            &camera_obj,
-            SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X,
-            MT9V03X_W,
-            MT9V03X_H,
-            mt9v03x_image);
+        seekfree_assistant_camera_config(&camera_obj, SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, mt9v03x_image);
         camera_configured = 1;
     }
 
@@ -128,5 +128,4 @@ void wifi_image_send(void)
 }
 void wifi_debug(void)
 {
-    // The display task calls wifi_image_send() after drawing the frame.
 }

@@ -139,6 +139,7 @@ void display_main_drow(void)
 
     if(main_select == 0)
     {
+        show_center("data");
         show_red_bold(0, 108, "-->data", RGB565_BLUE);
         show_red_bold(0, 128, "tuning", RGB565_BLUE);
 }
