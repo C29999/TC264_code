@@ -1,102 +1,92 @@
 /*********************************************************************************************************************
-* TC264 Opensourec Library ¼´£¨TC264 ¿ªÔ´¿â£©ÊÇÒ»¸ö»ùÓÚ¹Ù·½ SDK ½Ó¿ÚµÄµÚÈý·½¿ªÔ´¿â
-* Copyright (c) 2022 SEEKFREE Öð·É¿Æ¼¼
+* TC264 Opensourec Library ï¿½ï¿½ï¿½ï¿½TC264 ï¿½ï¿½Ô´ï¿½â£©ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½Ú¹Ù·ï¿½ SDK ï¿½Ó¿ÚµÄµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô´ï¿½ï¿½
+* Copyright (c) 2022 SEEKFREE ï¿½ï¿½É¿Æ¼ï¿??
 *
-* ±¾ÎÄ¼þÊÇ TC264 ¿ªÔ´¿âµÄÒ»²¿·Ö
+* ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ TC264 ï¿½ï¿½Ô´ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿??
 *
-* TC264 ¿ªÔ´¿â ÊÇÃâ·ÑÈí¼þ
-* Äú¿ÉÒÔ¸ù¾Ý×ÔÓÉÈí¼þ»ù½ð»á·¢²¼µÄ GPL£¨GNU General Public License£¬¼´ GNUÍ¨ÓÃ¹«¹²Ðí¿ÉÖ¤£©µÄÌõ¿î
-* ¼´ GPL µÄµÚ3°æ£¨¼´ GPL3.0£©»ò£¨ÄúÑ¡ÔñµÄ£©ÈÎºÎºóÀ´µÄ°æ±¾£¬ÖØÐÂ·¢²¼ºÍ/»òÐÞ¸ÄËü
+* TC264 ï¿½ï¿½Ô´ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿??
+* ï¿½ï¿½ï¿½ï¿½ï¿½Ô¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿??ï¿½ï¿½ï¿½ï¿½ GPLï¿½ï¿½GNU General Public Licenseï¿½ï¿½ï¿½ï¿½ GNUÍ¨ï¿½Ã¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+* ï¿½ï¿½ GPL ï¿½Äµï¿½3ï¿½æ£¨ï¿½ï¿½ GPL3.0ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¡ï¿½ï¿½Ä£ï¿½ï¿½ÎºÎºï¿½ï¿½ï¿½ï¿½Ä°æ±¾ï¿½ï¿½ï¿½ï¿½ï¿½Â·ï¿½ï¿½ï¿½ï¿½ï¿??/ï¿½ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½
 *
-* ±¾¿ªÔ´¿âµÄ·¢²¼ÊÇÏ£ÍûËüÄÜ·¢»Ó×÷ÓÃ£¬µ«²¢Î´¶ÔÆä×÷ÈÎºÎµÄ±£Ö¤
-* ÉõÖÁÃ»ÓÐÒþº¬µÄÊÊÏúÐÔ»òÊÊºÏÌØ¶¨ÓÃÍ¾µÄ±£Ö¤
-* ¸ü¶àÏ¸½ÚÇë²Î¼û GPL
+* ï¿½ï¿½ï¿½ï¿½Ô´ï¿½ï¿½Ä·ï¿½ï¿½ï¿½ï¿½ï¿½Ï£ï¿½ï¿½ï¿½ï¿½ï¿½Ü·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ã£ï¿½ï¿½ï¿½ï¿½ï¿½Î´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ÎºÎµÄ±ï¿½ï¿½?
+* ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô»ï¿½ï¿½Êºï¿½ï¿½Ø¶ï¿½ï¿½ï¿½Í¾ï¿½Ä±ï¿½Ö¤
+* ï¿½ï¿½ï¿½ï¿½Ï¸ï¿½ï¿½ï¿½ï¿½Î¼ï¿?? GPL
 *
-* ÄúÓ¦¸ÃÔÚÊÕµ½±¾¿ªÔ´¿âµÄÍ¬Ê±ÊÕµ½Ò»·Ý GPL µÄ¸±±¾
-* Èç¹ûÃ»ÓÐ£¬Çë²ÎÔÄ<https://www.gnu.org/licenses/>
+* ï¿½ï¿½Ó¦ï¿½ï¿½ï¿½ï¿½ï¿½Õµï¿½ï¿½ï¿½ï¿½ï¿½Ô´ï¿½ï¿½ï¿½ï¿½?Ê±ï¿½Õµï¿½Ò»ï¿½ï¿½ GPL ï¿½Ä¸ï¿½ï¿½ï¿½
+* ï¿½ï¿½ï¿½Ã»ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½<https://www.gnu.org/licenses/>
 *
-* ¶îÍâ×¢Ã÷£º
-* ±¾¿ªÔ´¿âÊ¹ÓÃ GPL3.0 ¿ªÔ´Ðí¿ÉÖ¤Ð­Òé ÒÔÉÏÐí¿ÉÉêÃ÷ÎªÒëÎÄ°æ±¾
-* Ðí¿ÉÉêÃ÷Ó¢ÎÄ°æÔÚ libraries/doc ÎÄ¼þ¼ÐÏÂµÄ GPL3_permission_statement.txt ÎÄ¼þÖÐ
-* Ðí¿ÉÖ¤¸±±¾ÔÚ libraries ÎÄ¼þ¼ÐÏÂ ¼´¸ÃÎÄ¼þ¼ÐÏÂµÄ LICENSE ÎÄ¼þ
-* »¶Ó­¸÷Î»Ê¹ÓÃ²¢´«²¥±¾³ÌÐò µ«ÐÞ¸ÄÄÚÈÝÊ±±ØÐë±£ÁôÖð·É¿Æ¼¼µÄ°æÈ¨ÉùÃ÷£¨¼´±¾ÉùÃ÷£©
+* ï¿½ï¿½ï¿½ï¿½×¢ï¿½ï¿½ï¿½ï¿½
+* ï¿½ï¿½ï¿½ï¿½Ô´ï¿½ï¿½Ê¹ï¿½ï¿½ GPL3.0 ï¿½ï¿½Ô´ï¿½ï¿½ï¿½ï¿½Ö¤Ð­ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½Ä°æ±¾
+* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó¢ï¿½Ä°ï¿½ï¿½ï¿½ libraries/doc ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½Âµï¿½ GPL3_permission_statement.txt ï¿½Ä¼ï¿½ï¿½ï¿½
+* ï¿½ï¿½ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ libraries ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½Âµï¿½ LICENSE ï¿½Ä¼ï¿½
+* ï¿½ï¿½Ó­ï¿½ï¿½Î»Ê¹ï¿½Ã²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Þ¸ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ë±£ï¿½ï¿½ï¿½ï¿½É¿Æ¼ï¿½ï¿½Ä°ï¿½ï¿½?ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 *
-* ÎÄ¼þÃû³Æ          isr
-* ¹«Ë¾Ãû³Æ          ³É¶¼Öð·É¿Æ¼¼ÓÐÏÞ¹«Ë¾
-* °æ±¾ÐÅÏ¢          ²é¿´ libraries/doc ÎÄ¼þ¼ÐÄÚ version ÎÄ¼þ °æ±¾ËµÃ÷
-* ¿ª·¢»·¾³          ADS v1.10.2
-* ÊÊÓÃÆ½Ì¨          TC264D
-* µêÆÌÁ´½Ó          https://seekfree.taobao.com/
+* ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½          isr
+* ï¿½ï¿½Ë¾ï¿½ï¿½ï¿½ï¿½          ï¿½É¶ï¿½ï¿½ï¿½É¿Æ¼ï¿½ï¿½ï¿½ï¿½Þ¹ï¿½ï¿½?
+* ï¿½æ±¾ï¿½ï¿½Ï¢          ï¿½é¿´ libraries/doc ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ version ï¿½Ä¼ï¿½ ï¿½æ±¾Ëµï¿½ï¿½
+* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½          ADS v1.10.2
+* ï¿½ï¿½ï¿½ï¿½Æ½Ì¨          TC264D
+* ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½          https://seekfree.taobao.com/
 *
-* ÐÞ¸Ä¼ÇÂ¼
-* ÈÕÆÚ              ×÷Õß                ±¸×¢
+* ï¿½Þ¸Ä¼ï¿½Â¼
+* ï¿½ï¿½ï¿½ï¿½              ï¿½ï¿½ï¿½ï¿½                ï¿½ï¿½×¢
 * 2022-09-15       pudding            first version
 ********************************************************************************************************************/
 
 #include "isr_config.h"
 #include "isr.h"
-extern void lv_tick_inc(uint32_t tick_period);
 
-// ¶ÔÓÚTCÏµÁÐÄ¬ÈÏÊÇ²»Ö§³ÖÖÐ¶ÏÇ¶Ì×µÄ£¬Ï£ÍûÖ§³ÖÖÐ¶ÏÇ¶Ì×ÐèÒªÔÚÖÐ¶ÏÄÚÊ¹ÓÃ interrupt_global_enable(0); À´¿ªÆôÖÐ¶ÏÇ¶Ì×
-// ¼òµ¥µãËµÊµ¼ÊÉÏ½øÈëÖÐ¶ÏºóTCÏµÁÐµÄÓ²¼þ×Ô¶¯µ÷ÓÃÁË interrupt_global_disable(); À´¾Ü¾øÏìÓ¦ÈÎºÎµÄÖÐ¶Ï£¬Òò´ËÐèÒªÎÒÃÇ×Ô¼ºÊÖ¶¯µ÷ÓÃ interrupt_global_enable(0); À´¿ªÆôÖÐ¶ÏµÄÏìÓ¦¡£
+// TCÏµï¿½ï¿½ï¿½ï¿½TCÏµï¿½ï¿½Ä¬ï¿½ï¿½ï¿½Ç²ï¿½Ö§ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½×µÄ£ï¿½Ï£ï¿½ï¿½Ö§ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½ï¿½ï¿½Òªï¿½ï¿½ï¿½Ð¶ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½ interrupt_global_enable(0); ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+// ï¿½òµ¥µï¿½ËµÊµï¿½ï¿½ï¿½Ï½ï¿½ï¿½ï¿½ï¿½Ð¶Ïºï¿½TCÏµï¿½Ðµï¿½Ó²ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ interrupt_global_disable(); ï¿½ï¿½ï¿½Ü¾ï¿½ï¿½ï¿½Ó¦ï¿½ÎºÎµï¿½ï¿½Ð¶Ï£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?ï¿½ï¿½ï¿½ï¿½ï¿½Ô¼ï¿½ï¿½Ö¶ï¿½ï¿½ï¿½ï¿½ï¿½ interrupt_global_enable(0); ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶Ïµï¿½ï¿½ï¿½Ó¦ï¿½ï¿½
 
-// **************************** PITÖÐ¶Ïº¯Êý ****************************
+// **************************** PITï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
 IFX_INTERRUPT(cc60_pit_ch0_isr, 0, CCU6_0_CH0_ISR_PRIORITY)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     pit_clear_flag(CCU60_CH0);
-    key_scanner();
-    lv_tick_inc(10);
-
-
+    encoder_update();
+    speed_control();
+    track_protection();
 }
-
-
 IFX_INTERRUPT(cc60_pit_ch1_isr, 0, CCU6_0_CH1_ISR_PRIORITY)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     pit_clear_flag(CCU60_CH1);
     fps=fps_count;
     fps_count=0;  
-
-
-
 }
 
 IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     pit_clear_flag(CCU61_CH0);
-
-
-
-
+    imu_update();  
 }
 
 IFX_INTERRUPT(cc61_pit_ch1_isr, 0, CCU6_1_CH1_ISR_PRIORITY)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     pit_clear_flag(CCU61_CH1);
 
 
 
 
 }
-// **************************** PITÖÐ¶Ïº¯Êý ****************************
+// **************************** PITï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
 
 
-// **************************** Íâ²¿ÖÐ¶Ïº¯Êý ****************************
+// **************************** ï¿½â²¿ï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
 IFX_INTERRUPT(exti_ch0_ch4_isr, 0, EXTI_CH0_CH4_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-    if(exti_flag_get(ERU_CH0_REQ0_P15_4))           // Í¨µÀ0ÖÐ¶Ï
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+    if(exti_flag_get(ERU_CH0_REQ0_P15_4))           // Í¨ï¿½ï¿½0ï¿½Ð¶ï¿½
     {
         exti_flag_clear(ERU_CH0_REQ0_P15_4);
 		
-        imu660rc_callback(); 	//			660RC Ä£¿é INT ¸üÐÂÖÐ¶Ï
+        imu660rc_callback(); 	//			660RC Ä£ï¿½ï¿½ INT ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½
     }
 
-    if(exti_flag_get(ERU_CH4_REQ13_P15_5))          // Í¨µÀ4ÖÐ¶Ï
+    if(exti_flag_get(ERU_CH4_REQ13_P15_5))          // Í¨ï¿½ï¿½4ï¿½Ð¶ï¿½
     {
         exti_flag_clear(ERU_CH4_REQ13_P15_5);
 
@@ -108,17 +98,17 @@ IFX_INTERRUPT(exti_ch0_ch4_isr, 0, EXTI_CH0_CH4_INT_PRIO)
 
 IFX_INTERRUPT(exti_ch1_ch5_isr, 0, EXTI_CH1_CH5_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
 
-    if(exti_flag_get(ERU_CH1_REQ10_P14_3))          // Í¨µÀ1ÖÐ¶Ï
+    if(exti_flag_get(ERU_CH1_REQ10_P14_3))          // Í¨ï¿½ï¿½1ï¿½Ð¶ï¿½
     {
         exti_flag_clear(ERU_CH1_REQ10_P14_3);
 
-        tof_module_exti_handler();                  // ToF Ä£¿é INT ¸üÐÂÖÐ¶Ï
+        tof_module_exti_handler();                  // ToF Ä£ï¿½ï¿½ INT ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½
 
     }
 
-    if(exti_flag_get(ERU_CH5_REQ1_P15_8))           // Í¨µÀ5ÖÐ¶Ï
+    if(exti_flag_get(ERU_CH5_REQ1_P15_8))           // Í¨ï¿½ï¿½5ï¿½Ð¶ï¿½
     {
         exti_flag_clear(ERU_CH5_REQ1_P15_8);
 
@@ -126,28 +116,28 @@ IFX_INTERRUPT(exti_ch1_ch5_isr, 0, EXTI_CH1_CH5_INT_PRIO)
     }
 }
 
-// ÓÉÓÚÉãÏñÍ·pclkÒý½ÅÄ¬ÈÏÕ¼ÓÃÁË 2Í¨µÀ£¬ÓÃÓÚ´¥·¢DMA£¬Òò´ËÕâÀï²»ÔÙ¶¨ÒåÖÐ¶Ïº¯Êý
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í·pclkï¿½ï¿½ï¿½ï¿½Ä¬ï¿½ï¿½Õ¼ï¿½ï¿½ï¿½ï¿½ 2Í¨ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú´ï¿½ï¿½ï¿½DMAï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï²»ï¿½Ù¶ï¿½ï¿½ï¿½ï¿½Ð¶Ïºï¿½ï¿½ï¿??
 // IFX_INTERRUPT(exti_ch2_ch6_isr, 0, EXTI_CH2_CH6_INT_PRIO)
 // {
-//  interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-//  if(exti_flag_get(ERU_CH2_REQ7_P00_4))           // Í¨µÀ2ÖÐ¶Ï
+//  interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+//  if(exti_flag_get(ERU_CH2_REQ7_P00_4))           // Í¨ï¿½ï¿½2ï¿½Ð¶ï¿½
 //  {
 //      exti_flag_clear(ERU_CH2_REQ7_P00_4);
 //  }
-//  if(exti_flag_get(ERU_CH6_REQ9_P20_0))           // Í¨µÀ6ÖÐ¶Ï
+//  if(exti_flag_get(ERU_CH6_REQ9_P20_0))           // Í¨ï¿½ï¿½6ï¿½Ð¶ï¿½
 //  {
 //      exti_flag_clear(ERU_CH6_REQ9_P20_0);
 //  }
 // }
 IFX_INTERRUPT(exti_ch3_ch7_isr, 0, EXTI_CH3_CH7_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-    if(exti_flag_get(ERU_CH3_REQ6_P02_0))           // Í¨µÀ3ÖÐ¶Ï
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+    if(exti_flag_get(ERU_CH3_REQ6_P02_0))           // Í¨ï¿½ï¿½3ï¿½Ð¶ï¿½
     {
         exti_flag_clear(ERU_CH3_REQ6_P02_0);
-        camera_vsync_handler();                     // ÉãÏñÍ·´¥·¢²É¼¯Í³Ò»»Øµ÷º¯Êý
+        camera_vsync_handler();                     // ï¿½ï¿½ï¿½ï¿½Í·ï¿½ï¿½ï¿½ï¿½ï¿½É¼ï¿½Í³Ò»ï¿½Øµï¿½ï¿½ï¿½ï¿½ï¿½
     }
-    if(exti_flag_get(ERU_CH7_REQ16_P15_1))          // Í¨µÀ7ÖÐ¶Ï
+    if(exti_flag_get(ERU_CH7_REQ16_P15_1))          // Í¨ï¿½ï¿½7ï¿½Ð¶ï¿½
     {
         exti_flag_clear(ERU_CH7_REQ16_P15_1);
 
@@ -156,41 +146,41 @@ IFX_INTERRUPT(exti_ch3_ch7_isr, 0, EXTI_CH3_CH7_INT_PRIO)
 
     }
 }
-// **************************** Íâ²¿ÖÐ¶Ïº¯Êý ****************************
+// **************************** ï¿½â²¿ï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
 
 
-// **************************** DMAÖÐ¶Ïº¯Êý ****************************
+// **************************** DMAï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
 IFX_INTERRUPT(dma_ch5_isr, 0, DMA_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-    camera_dma_handler();                           // ÉãÏñÍ·²É¼¯Íê³ÉÍ³Ò»»Øµ÷º¯Êý
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+    camera_dma_handler();                           // ï¿½ï¿½ï¿½ï¿½Í·ï¿½É¼ï¿½ï¿½ï¿½ï¿½Í³Ò»ï¿½Øµï¿½ï¿½ï¿½ï¿½ï¿??
 }
-// **************************** DMAÖÐ¶Ïº¯Êý ****************************
+// **************************** DMAï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
 
 
-// **************************** ´®¿ÚÖÐ¶Ïº¯Êý ****************************
-// ´®¿Ú0Ä¬ÈÏ×÷Îªµ÷ÊÔ´®¿Ú
+// **************************** ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶Ïºï¿½ï¿½ï¿½ ****************************
+// ï¿½ï¿½ï¿½ï¿½0Ä¬ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½Ô´ï¿½ï¿½ï¿½
 IFX_INTERRUPT(uart0_tx_isr, 0, UART0_TX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
 
 
 
 }
 IFX_INTERRUPT(uart0_rx_isr, 0, UART0_RX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
 
-#if DEBUG_UART_USE_INTERRUPT                        // Èç¹û¿ªÆô debug ´®¿ÚÖÐ¶Ï
-        debug_interrupr_handler();                  // µ÷ÓÃ debug ´®¿Ú½ÓÊÕ´¦Àíº¯Êý Êý¾Ý»á±» debug »·ÐÎ»º³åÇø¶ÁÈ¡
-#endif                                              // Èç¹ûÐÞ¸ÄÁË DEBUG_UART_INDEX ÄÇÕâ¶Î´úÂëÐèÒª·Åµ½¶ÔÓ¦µÄ´®¿ÚÖÐ¶ÏÈ¥
+#if DEBUG_UART_USE_INTERRUPT                        // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿?? debug ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½
+        debug_interrupr_handler();                  // ï¿½ï¿½ï¿½ï¿½ debug ï¿½ï¿½ï¿½Ú½ï¿½ï¿½Õ´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ý»á±» debug ï¿½ï¿½ï¿½Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¡
+#endif                                              // ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½ï¿½ï¿?? DEBUG_UART_INDEX ï¿½ï¿½ï¿½ï¿½Î´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?ï¿½Åµï¿½ï¿½ï¿½Ó¦ï¿½Ä´ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½È¥
 }
 
 
-// ´®¿Ú1Ä¬ÈÏÁ¬½Óµ½ÉãÏñÍ·ÅäÖÃ´®¿Ú
+// ï¿½ï¿½ï¿½ï¿½1Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½Óµï¿½ï¿½ï¿½ï¿½ï¿½Í·ï¿½ï¿½ï¿½Ã´ï¿½ï¿½ï¿½
 IFX_INTERRUPT(uart1_tx_isr, 0, UART1_TX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
 
 
 
@@ -198,14 +188,14 @@ IFX_INTERRUPT(uart1_tx_isr, 0, UART1_TX_INT_PRIO)
 }
 IFX_INTERRUPT(uart1_rx_isr, 0, UART1_RX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-    camera_uart_handler();                          // ÉãÏñÍ·²ÎÊýÅäÖÃÍ³Ò»»Øµ÷º¯Êý
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+    camera_uart_handler();                          // ï¿½ï¿½ï¿½ï¿½Í·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í³Ò»ï¿½Øµï¿½ï¿½ï¿½ï¿½ï¿½
 }
 
-// ´®¿Ú2Ä¬ÈÏÁ¬½Óµ½ÎÞÏß×ª´®¿ÚÄ£¿é
+// ï¿½ï¿½ï¿½ï¿½2Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½Óµï¿½ï¿½ï¿½ï¿½ï¿½×ªï¿½ï¿½ï¿½ï¿½Ä£ï¿½ï¿½
 IFX_INTERRUPT(uart2_tx_isr, 0, UART2_TX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
 
 
 
@@ -213,16 +203,16 @@ IFX_INTERRUPT(uart2_tx_isr, 0, UART2_TX_INT_PRIO)
 
 IFX_INTERRUPT(uart2_rx_isr, 0, UART2_RX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-    wireless_module_uart_handler();                 // ÎÞÏßÄ£¿éÍ³Ò»»Øµ÷º¯Êý
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+    wireless_module_uart_handler();                 // ï¿½ï¿½ï¿½ï¿½Ä£ï¿½ï¿½Í³Ò»ï¿½Øµï¿½ï¿½ï¿½ï¿½ï¿½
 
 
 
 }
-// ´®¿Ú3Ä¬ÈÏÁ¬½Óµ½GPS¶¨Î»Ä£¿é
+// ï¿½ï¿½ï¿½ï¿½3Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½Óµï¿½GPSï¿½ï¿½Î»Ä£ï¿½ï¿½
 IFX_INTERRUPT(uart3_tx_isr, 0, UART3_TX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
 
 
 
@@ -230,31 +220,31 @@ IFX_INTERRUPT(uart3_tx_isr, 0, UART3_TX_INT_PRIO)
 
 IFX_INTERRUPT(uart3_rx_isr, 0, UART3_RX_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
-    gnss_uart_callback();                           // GNSS´®¿Ú»Øµ÷º¯Êý
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
+    gnss_uart_callback();                           // GNSSï¿½ï¿½ï¿½Ú»Øµï¿½ï¿½ï¿½ï¿½ï¿½
 
 
 
 }
 
-// ´®¿ÚÍ¨Ñ¶´íÎóÖÐ¶Ï
+// ï¿½ï¿½ï¿½ï¿½Í¨Ñ¶ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½
 IFX_INTERRUPT(uart0_er_isr, 0, UART0_ER_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     IfxAsclin_Asc_isrError(&uart0_handle);
 }
 IFX_INTERRUPT(uart1_er_isr, 0, UART1_ER_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     IfxAsclin_Asc_isrError(&uart1_handle);
 }
 IFX_INTERRUPT(uart2_er_isr, 0, UART2_ER_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     IfxAsclin_Asc_isrError(&uart2_handle);
 }
 IFX_INTERRUPT(uart3_er_isr, 0, UART3_ER_INT_PRIO)
 {
-    interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
+    interrupt_global_enable(0);                     // ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½Ç¶ï¿½ï¿½
     IfxAsclin_Asc_isrError(&uart3_handle);
 }

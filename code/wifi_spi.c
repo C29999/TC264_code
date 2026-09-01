@@ -1,5 +1,5 @@
 #include "wifi_spi.h"
-#include "lvgl_demo.h"
+
 #include "math.h"
 #include <stdio.h>
 #define PAI 3.1415926f
@@ -42,49 +42,55 @@ void my_wifi_spi_init(void)
     /* ---- 第 1 阶段：SPI 初始化 ---- */
     wifi_stage = 1;
     wifi_result = 0;
-    delay_with_refresh_ms(200);
+    system_delay_ms(200);
     if (wifi_spi_init(NULL, NULL) != 0)
     {
         wifi_result = 2;
         wifi_stage = 255;
-        delay_with_refresh_ms(500);
+        show_center("WIFI SPI Error");
+        system_delay_ms(500);
         return;
     }
     wifi_result = 1;
-    delay_with_refresh_ms(200);
-
+    system_delay_ms(200);
     /* ---- 第 2 阶段：WIFI 连接（最多重试 3 次）---- */
     wifi_stage = 2;
     wifi_result = 0;
-    delay_with_refresh_ms(200);
+    system_delay_ms(200);
     for (retry_count = 0; retry_count < 3; retry_count++)
     {
         if (wifi_spi_wifi_connect("chun", "12345678") == 0)
         {
             break;
+            show_center("WIFI Connected Success");
+            break;
         }
-        delay_with_refresh_ms(500); // 重试等待也要刷新
+        else
+        {
+            show_center("WIFI Connecting");
+        }
+        system_delay_ms(500); // 重试等待也要刷新
     }
-
+    show_center("WIFI Connected Failed");
     if (retry_count >= 3)
     {
         wifi_result = 2;
         wifi_stage = 255;
-        delay_with_refresh_ms(500);
+        system_delay_ms(500);
         return;
     }
     wifi_result = 1;
-    delay_with_refresh_ms(200);
+    system_delay_ms(200);
 
     /* ---- 第 3 阶段：TCP 连接 ---- */
     wifi_stage = 3;
     wifi_result = 0;
-    delay_with_refresh_ms(200);
+    system_delay_ms(200);
     if (wifi_spi_socket_connect("TCP", "192.168.108.248", "8080", "6060") != 0)
     {
         wifi_result = 2;
         wifi_stage = 255;
-        delay_with_refresh_ms(500);
+        system_delay_ms(500);
         return;
     }
     else
@@ -94,12 +100,11 @@ void my_wifi_spi_init(void)
     seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIFI_SPI);
     wifi_flag = 1;
     wifi_result = 1;
-    delay_with_refresh_ms(200);
-
+    system_delay_ms(200);
     /* ---- 第 4 阶段：完成 ---- */
     wifi_stage = 4;
     wifi_init_flag = 1;
-    delay_with_refresh_ms(200 + 500);
+    system_delay_ms(200 + 500);
 }
 void wifi_image_send(void)
 {

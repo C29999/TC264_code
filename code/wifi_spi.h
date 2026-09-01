@@ -1,6 +1,6 @@
 #ifndef WIFI_SPI_H
 #define WIFI_SPI_H
-/* ---------- LVGL版 WIFI 初始化 UI + 发车关屏封装 ---------- */
+
 #include "zf_common_headfile.h"
 
 void my_wifi_spi_init(void);

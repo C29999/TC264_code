@@ -3,6 +3,7 @@
 
 #include "zf_common_headfile.h"
 
-void system_init(void);
+void system_0_init(void);
+void system_1_init(void);
 
 #endif

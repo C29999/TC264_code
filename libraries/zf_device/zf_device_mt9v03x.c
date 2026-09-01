@@ -291,7 +291,6 @@ static void mt9v03x_dma_handler(void)
             // 一副图像从采集开始到采集结束耗时3.8MS左右(50FPS、188*120分辨率)
             mt9v03x_dma_int_num = 0;
             mt9v03x_lost_flag   = 0;
-            fps_count++;
             mt9v03x_finish_flag = 1;
             dma_disable(MT9V03X_DMA_CH);
         }

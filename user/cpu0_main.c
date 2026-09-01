@@ -33,7 +33,7 @@
 * 2022-09-15       pudding            first version
 ********************************************************************************************************************/
 #include "zf_common_headfile.h"
-#include "lvgl_demo.h"
+
 #include "wifi_spi.h"
 #include "image.h"
 
@@ -51,22 +51,12 @@ int core0_main(void)
 {
     clock_init();
     debug_init();
-    system_init();                     // 内部已做：LVGL初始化 + WIFI初始化 + 摄像头初始化 + 切到主界面
+    system_0_init();                     // WIFI初始化 + 摄像头初始化
 
     cpu_wait_event_ready();
     while (TRUE)
     {
-        if (mt9v03x_finish_flag)
-        {
-            image_threshold(mt9v03x_image); 
-        }
-        display_draw();
-        if (g_ui.power_on == POWER_ON) {
-            lv_task_handler();
-            system_delay_ms(5);
-        } else {
-            system_delay_ms(1);          /* 关屏状态：最多 delay 1ms，CPU 全力跑业务 */
-        }
+        
     }
 
 }
