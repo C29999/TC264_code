@@ -57,10 +57,13 @@ void core1_main(void)
         display_draw();
         if (mt9v03x_finish_flag)
         {
+            
+            wifi_debug();
             mt9v03x_finish_flag=0;
             fps_count++;
             image_threshold_block(mt9v03x_image); 
             find_edges_binary();
+            process_edge_points();
             calculation_error();
         }
     }

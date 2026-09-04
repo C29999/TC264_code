@@ -218,12 +218,28 @@ void show_center(const char *text)
 
     show_red_bold(x, y, text, RGB565_PINK);
 }
+//边线坐标→缩略图屏幕坐标映射（带截断，防单边补线时越界画花屏幕）
+static uint16 edge_map_x(int16 x)
+{
+    if (x < 0)   x = 0;
+    if (x > 187) x = 187;
+    return 127 + (uint16)(x * 110 / 188);
+}
+static uint16 edge_map_y(int16 y)
+{
+    if (y < 0)   y = 0;
+    if (y > 119) y = 119;
+    return (uint16)(y * 80 / 120);
+}
 void show_draw_edges(void)
 {
-    const uint16 bx = 127;   // 二值图显示区域原点 x
     const uint16 by = 0;     // 二值图显示区域原点 y
     uint16 i;
-    uint16 n;
+
+    // 图像中心竖线：黄色，画在二值图上（无论有没有边线都显示）
+    ips200_draw_line(edge_map_x(image_center), by,
+                     edge_map_x(image_center), by + 80,
+                     RGB565_YELLOW);
 
     if (left_line_count == 0 && right_line_count == 0)
     {
@@ -234,26 +250,50 @@ void show_draw_edges(void)
     // 左边线：蓝色
     for(i=1;i<left_line_count;i++)
     {
-        ips200_draw_line(bx + (uint16)(left_line_points[i-1][0]*110/188), by + (uint16)(left_line_points[i-1][1]*80/120),
-                         bx + (uint16)(left_line_points[i][0]*110/188),   by + (uint16)(left_line_points[i][1]*80/120),
+        ips200_draw_line(edge_map_x(left_line_points[i-1][0]), edge_map_y(left_line_points[i-1][1]),
+                         edge_map_x(left_line_points[i][0]),   edge_map_y(left_line_points[i][1]),
                          RGB565_BLUE);
     }
 
     // 右边线：红色
     for(i=1;i<right_line_count;i++)
     {
-        ips200_draw_line(bx + (uint16)(right_line_points[i-1][0]*110/188), by + (uint16)(right_line_points[i-1][1]*80/120),
-                         bx + (uint16)(right_line_points[i][0]*110/188),   by + (uint16)(right_line_points[i][1]*80/120),
+        ips200_draw_line(edge_map_x(right_line_points[i-1][0]), edge_map_y(right_line_points[i-1][1]),
+                         edge_map_x(right_line_points[i][0]),   edge_map_y(right_line_points[i][1]),
                          RGB565_RED);
     }
 
-    // 中线：绿色（左右边线中点）
-    n=(left_line_count<right_line_count)?left_line_count:right_line_count;
-    for(i=1;i<n;i++)
+    // 中线：绿色（逐行对齐版：按y行取左右线x的中点，单边行用±TRACK_HALF_W虚拟）
     {
-        ips200_draw_line(bx + (uint16)((left_line_points[i-1][0]+right_line_points[i-1][0])*110/376), by + (uint16)((left_line_points[i-1][1]+right_line_points[i-1][1])*80/240),
-                         bx + (uint16)((left_line_points[i][0]+right_line_points[i][0])*110/376), by + (uint16)((left_line_points[i][1]+right_line_points[i][1])*80/240),
-                         RGB565_GREEN);
+        int16 lx[MT9V03X_H], rx[MT9V03X_H];
+        int16 y2, mx;
+        int16 prev_x = -1, prev_y = -1;
+
+        for (y2 = 0; y2 < MT9V03X_H; y2++) { lx[y2] = -1; rx[y2] = -1; }
+        // 把边线点按行号展开(一行取第一次出现的x)
+        for (i = 0; i < left_line_count; i++)
+            if (left_line_points[i][1] >= 0 && left_line_points[i][1] < MT9V03X_H
+                && lx[left_line_points[i][1]] < 0)
+                lx[left_line_points[i][1]] = left_line_points[i][0];
+        for (i = 0; i < right_line_count; i++)
+            if (right_line_points[i][1] >= 0 && right_line_points[i][1] < MT9V03X_H
+                && rx[right_line_points[i][1]] < 0)
+                rx[right_line_points[i][1]] = right_line_points[i][0];
+
+        // 从近端(底部)往远端逐行连线
+        for (y2 = MT9V03X_H - 1; y2 >= 0; y2--)
+        {
+            if (lx[y2] >= 0 && rx[y2] >= 0)     mx = (lx[y2] + rx[y2]) / 2;   //双边:真中点
+            else if (lx[y2] >= 0)               mx = lx[y2] + TRACK_HALF_W;   //仅左:虚拟
+            else if (rx[y2] >= 0)               mx = rx[y2] - TRACK_HALF_W;   //仅右:虚拟
+            else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
+
+            if (prev_x >= 0)
+                ips200_draw_line(edge_map_x(prev_x), edge_map_y(prev_y),
+                                 edge_map_x(mx), edge_map_y(y2), RGB565_GREEN);
+            prev_x = mx;
+            prev_y = y2;
+        }
     }
 }
 void display_draw(void)
@@ -263,6 +303,7 @@ void display_draw(void)
     {
         ips200_show_gray_image(0,0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
         ips200_show_gray_image(127,0, (const uint8 *)image_binary[0], MT9V03X_W, MT9V03X_H, 110, 80, 0);
+        show_draw_edges();   // 图和边线同帧：刷完图立刻画线，每帧只画一次
     }
     if(current_page == PAGE_MAIN)
     {
@@ -299,21 +340,19 @@ void display_draw(void)
         sprintf(show_buf,"r_out:%03d",(int)speed_r_pid.out);
         show_red_bold(0,248, show_buf, RGB565_GREEN);
         sprintf(show_buf,"error:%03d",image_error_filter);
-        show_red_bold(108,168, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"stop_flag:%01d",stop_flog);
         show_red_bold(0,268, show_buf, RGB565_GREEN);
-        if (mt9v03x_finish_flag)
-        {
-            ips200_show_gray_image(0,0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
-            ips200_show_gray_image(127,0, (const uint8 *)image_binary[0], MT9V03X_W, MT9V03X_H, 110, 80, 0);
-        }
+        sprintf(show_buf,"pts:%03d/%03d",rpts0s_num,rpts1s_num);
+        show_red_bold(108,108, show_buf, RGB565_CYAN);
+        sprintf(show_buf,"ang:%.0f/%.0f",conf1_max*57.3f,conf2_max*57.3f);
+        show_red_bold(108,128, show_buf, RGB565_YELLOW);
+        sprintf(show_buf,"cL:%d cR:%d",Lpt0_found,Lpt1_found);
+        show_red_bold(108,148, show_buf, RGB565_RED);
     }
     else if(current_page == PAGE_TUNING)
     {
         if (tuning_level == 0)  tuning_draw_menu();
         else                    tuning_draw_edit();
     }
-    show_draw_edges();
 
     last_display_page = current_page;
 }

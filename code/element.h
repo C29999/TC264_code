@@ -33,7 +33,6 @@ extern int32 cross_out_distance;           // 退出过渡距离
 /* ================ 编码器测距（在 isr.c 累加） ================ */
 extern int32 total_distance;               // 累计行驶距离（编码器脉冲）
 extern int16 encoder_measure_flag;         // 1=正在测距 0=停止测距
-
 /* ================ 调试开关 ================ */
 extern uint16 g_elem_debug;                // 1=显示调试信息
 

@@ -1,6 +1,6 @@
 #include "data.h"
 uint8 wifi_ok_flag;
-uint8 wifi_flag;
+uint8 wifi_flag = 1;    //图像发送开关：1=发图到上位机 0=不发
 uint8 wifi_init_flag;
 volatile uint8 wifi_stage;
 volatile uint8 wifi_result;

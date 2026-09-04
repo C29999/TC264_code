@@ -8,7 +8,7 @@
 
 static float sin_phase = 0.0f;
 static char tx_buf[48] __attribute__((unused));
-
+static uint8 wifi_send_ready = 0;  
 static int SinWithPhase(float phase_offset)
 {
     return (int)(AMPLITUDE * sin(sin_phase + phase_offset));
@@ -31,106 +31,87 @@ int Sin(void)
 
 void my_wifi_spi_init(void)
 {
-    uint8 retry_count;
-
-    wifi_ok_flag = 0;
-    wifi_flag = 0;
-    wifi_init_flag = 0;
-    wifi_stage = 0;
-    wifi_result = 0;
-
-    /* ---- 第 1 阶段：SPI 初始化 ---- */
-    wifi_stage = 1;
-    wifi_result = 0;
-    system_delay_ms(200);
     if (wifi_spi_init(NULL, NULL) != 0)
     {
-        wifi_result = 2;
-        wifi_stage = 255;
         show_center("WIFI SPI Error");
-        system_delay_ms(500);
-        return;
-    }
-    wifi_result = 1;
-    system_delay_ms(200);
-    /* ---- 第 2 阶段：WIFI 连接（最多重试 3 次）---- */
-    wifi_stage = 2;
-    wifi_result = 0;
-    system_delay_ms(200);
-    for (retry_count = 0; retry_count < 3; retry_count++)
-    {
-        if (wifi_spi_wifi_connect("chun", "12345678") == 0)
-        {
-            break;
-            show_center("WIFI Connected Success");
-            break;
-        }
-        else
-        {
-            show_center("WIFI Connecting");
-        }
-        system_delay_ms(500); // 重试等待也要刷新
-    }
-    show_center("WIFI Connected Failed");
-    if (retry_count >= 3)
-    {
-        wifi_result = 2;
-        wifi_stage = 255;
-        system_delay_ms(500);
-        return;
-    }
-    wifi_result = 1;
-    system_delay_ms(200);
-
-    /* ---- 第 3 阶段：TCP 连接 ---- */
-    wifi_stage = 3;
-    wifi_result = 0;
-    system_delay_ms(200);
-    if (wifi_spi_socket_connect("TCP", "192.168.108.248", "8080", "6060") != 0)
-    {
-        wifi_result = 2;
-        wifi_stage = 255;
         system_delay_ms(500);
         return;
     }
     else
     {
-        wifi_ok_flag = 1;
+        show_center("WIFI SPI Success");
+        system_delay_ms(500);
+    }
+    if (wifi_spi_wifi_connect("chun", "12345678") == 0)
+        {
+            show_center("WIFI Connected Success");
+            system_delay_ms(500); 
+        }
+        else
+        {
+            show_center("WIFI Connecting fail");
+            system_delay_ms(500);
+            return;
+        }
+    system_delay_ms(200);
+    if (wifi_spi_socket_connect("TCP", "192.168.243.248", "8080", "6060") != 0)
+    {
+        show_center("TCP Connecting fail");
+        system_delay_ms(500);
+        return;
+    }
+    else
+    {
+        show_center("TCP Connecting success");
+        system_delay_ms(500);
     }
     seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIFI_SPI);
-    wifi_flag = 1;
-    wifi_result = 1;
-    system_delay_ms(200);
-    /* ---- 第 4 阶段：完成 ---- */
-    wifi_stage = 4;
-    wifi_init_flag = 1;
-    system_delay_ms(200 + 500);
+    wifi_send_ready = 1;    //全部初始化成功，允许发数据
 }
 void wifi_image_send(void)
 {
     static seekfree_assistant_camera_struct camera_obj;
     static uint8 camera_configured = 0;
-
-    if (!mt9v03x_finish_flag)
+    if (!wifi_send_ready)
     {
         return;
     }
-
-    if (!wifi_flag)
-    {
-        mt9v03x_finish_flag = 0;
-        return;
-    }
-
+    /* 全图：尺寸和缓冲固定，只需配置一次 */
     if (!camera_configured)
     {
-        seekfree_assistant_camera_config(&camera_obj, SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, mt9v03x_image);
+        seekfree_assistant_camera_config(&camera_obj,
+            SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, mt9v03x_image);
         camera_configured = 1;
     }
-
     seekfree_assistant_camera_send(&camera_obj);
-    mt9v03x_finish_flag = 0;
+}
+void wifi_boundary_send(void)
+{
+    static seekfree_assistant_camera_boundary_struct boundary_l_obj;
+    static seekfree_assistant_camera_boundary_struct boundary_r_obj;
+    if (!wifi_send_ready)
+    {
+        return;
+    }
+    /* 左边线：红色 */
+    if (left_line_count > 0)
+    {
+        seekfree_assistant_camera_boundary_config(&boundary_l_obj,
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT16, 0xF800,
+            (uint16)left_line_count, left_line_points);
+        seekfree_assistant_camera_boundary_send(&boundary_l_obj);
+    }
+    /* 右边线：蓝色 */
+    if (right_line_count > 0)
+    {
+        seekfree_assistant_camera_boundary_config(&boundary_r_obj,
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT16, 0x001F,
+            (uint16)right_line_count, right_line_points);
+        seekfree_assistant_camera_boundary_send(&boundary_r_obj);
+    }
 }
 void wifi_debug(void)
 {
+ //  wifi_image_send();
+    wifi_boundary_send();
 }

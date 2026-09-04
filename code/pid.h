@@ -29,5 +29,6 @@ extern pid_t speed_r_pid;       //右轮速度环
 void pid_init(pid_t *pid, float kp, float ki, float kd, float low_pass,float out_max, float out_min, float integral_max);
 float pid_cal(pid_t *pid, float error);
 float pid_cal_inc(pid_t *pid, float error);
+void speed_control(void);   //速度内环（10ms，isr.c 调用）
 
 #endif
