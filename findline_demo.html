@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>自适应阈值巡线原理演示</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --line:#e2e5ea; --txt:#1f2328; --sub:#6a737d;
+    --accent:#0969da; --warn:#d29922; --ok:#1a7f37; --danger:#cf222e; --purple:#8250df;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;}
+  body{background:var(--bg);color:var(--txt);padding:20px 24px;}
+  h1{font-size:19px;margin-bottom:2px;}
+  .desc{color:var(--sub);font-size:13px;margin-bottom:14px;}
+  .layout{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;}
+  .card h2{font-size:13px;color:var(--sub);font-weight:600;margin-bottom:10px;letter-spacing:.5px;}
+  canvas{display:block;border-radius:6px;}
+  .panel{width:392px;display:flex;flex-direction:column;gap:12px;}
+  .calc{display:flex;flex-direction:column;gap:6px;font-size:13px;}
+  .calc .row{display:flex;justify-content:space-between;align-items:center;background:#f6f7f9;border-radius:6px;padding:6px 10px;}
+  .calc .row b{font-variant-numeric:tabular-nums;}
+  .probe{display:flex;gap:10px;}
+  .probe .p{flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;text-align:center;}
+  .probe .p .v{font-size:20px;font-weight:700;margin:2px 0;}
+  .badge{display:inline-block;padding:1px 10px;border-radius:10px;font-size:12px;color:#fff;}
+  .b-black{background:#57606a;} .b-white{background:var(--ok);}
+  .branches{display:flex;flex-direction:column;gap:6px;}
+  .branch{border:1.5px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;color:var(--sub);transition:all .25s;}
+  .branch .t{font-weight:600;color:var(--txt);margin-bottom:2px;}
+  .branch.on{border-color:var(--accent);background:#ddf4ff;color:var(--txt);transform:translateX(4px);}
+  .branch.on .t{color:var(--accent);}
+  .status{display:flex;gap:8px;font-size:13px;flex-wrap:wrap;}
+  .chip{background:#f6f7f9;border:1px solid var(--line);border-radius:6px;padding:4px 10px;}
+  .chip b{font-variant-numeric:tabular-nums;}
+  .controls{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;}
+  button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 16px;font-size:13px;cursor:pointer;color:var(--txt);transition:all .15s;}
+  button:hover{border-color:var(--accent);color:var(--accent);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.primary:hover{opacity:.88;color:#fff;}
+  input[type=range]{accent-color:var(--accent);width:120px;}
+  .note{font-size:12px;color:var(--sub);line-height:1.7;margin-top:8px;}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--sub);margin-top:8px;flex-wrap:wrap;}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px;}
+</style>
+</head>
+<body>
+<h1>自适应阈值巡线 · 逐帧原理演示</h1>
+<div class="desc">对应 image.c 的 findline_righthand_adaptive —— 真实代码中左右两只"爬虫"对称同时跑，这里演示右边那只</div>
+
+<div class="layout">
+  <div class="card">
+    <h2>鸟瞰图（46 × 32 模拟灰度图，含光照渐变 + 噪声）</h2>
+    <canvas id="main" width="598" height="416"></canvas>
+    <div class="legend">
+      <span><span class="dot" style="background:#f5d90a"></span>7×7 邻域窗口</span>
+      <span><span class="dot" style="background:#0969da;border-radius:50%"></span>正前方采样</span>
+      <span><span class="dot" style="background:#8250df;border-radius:50%"></span>右前方采样</span>
+      <span><span class="dot" style="background:#e5534b;border-radius:50%"></span>爬虫(巡线点)</span>
+    </div>
+    <div class="controls">
+      <button class="primary" id="btnPlay">暂停</button>
+      <button id="btnStep">单步</button>
+      <button id="btnReset">重置</button>
+      <span style="font-size:13px;color:var(--sub)">速度</span>
+      <input type="range" id="speed" min="120" max="1000" value="550" step="10">
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="card">
+      <h2>STEP 1 · 局部均值 → 自适应阈值</h2>
+      <canvas id="mini" width="63" height="63" style="margin:0 auto 10px;"></canvas>
+      <div class="calc">
+        <div class="row"><span>49 个灰度求和</span><b id="cSum">-</b></div>
+        <div class="row"><span>均值 mean = sum / 49</span><b id="cMean">-</b></div>
+        <div class="row"><span>阈值 thres = mean − clip(4)</span><b id="cThres">-</b></div>
+      </div>
+      <div class="note">阈值不是全图固定的 128，而是"我现在周围有多亮"的实时估计 —— 画面上方偏暗时阈值自动变小，所以光照渐变不影响判黑。</div>
+    </div>
+
+    <div class="card">
+      <h2>STEP 2 · 探测前方两个采样点</h2>
+      <div class="probe">
+        <div class="p">正前方<div class="v" id="vF">-</div><span class="badge b-white" id="bF">-</span></div>
+        <div class="p">右前方<div class="v" id="vR">-</div><span class="badge b-white" id="bR">-</span></div>
+      </div>
+      <div class="note">灰度值 &lt; 阈值 → 判黑。黑 = 赛道边线，白 = 赛道内。</div>
+    </div>
+
+    <div class="card">
+      <h2>STEP 3 · 三分支决策（右手法则）</h2>
+      <div class="branches">
+        <div class="branch" id="br0"><div class="t">前方黑 → 左转（原地）</div>贴线方向修正，turn 计数 +1</div>
+        <div class="branch" id="br1"><div class="t">右前黑、前方白 → 直行</div>右前贴着线 = 位置正确，向上走一步</div>
+        <div class="branch" id="br2"><div class="t">前方全白 → 走右前 + 右转</div>线丢了，往右前方找回来重新贴线</div>
+      </div>
+      <div class="status" style="margin-top:10px;">
+        <span class="chip">朝向 <b id="sDir">上</b></span>
+        <span class="chip">已走点数 <b id="sStep">0</b></span>
+        <span class="chip">连续转向 turn <b id="sTurn">0</b></span>
+      </div>
+      <div class="note">turn ≥ 4（被黑包围）或撞到图像边界 → 停线，touch_boundary 置 1 —— 这就是以后十字"边线断裂"的判据。</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 模拟鸟瞰图 ================= */
+const W=46, H=32, CELL=13;
+let grid=[];
+function buildTrack(){
+  grid=[];
+  for(let y=0;y<H;y++){const row=[];for(let x=0;x<W;x++){
+    // 光照渐变：上暗下亮 + 轻噪声（全图固定阈值在这里会翻车，自适应不受影响）
+    row.push(Math.max(0,Math.min(255, 240 - (1-y/H)*46 - (x/W)*10 + (Math.random()*10-5))));
+  }grid.push(row);}
+  const paint=(x,y)=>{ if(x>=0&&x<W&&y>=0&&y<H) grid[y][x]=22; };
+  for(let y=22;y<=29;y++){ paint(8,y);paint(9,y); paint(35,y);paint(36,y); }   // 直道段
+  for(let y=13;y<=21;y++){                                                     // 弯道段
+    const t=(21-y)/8, o=Math.round(5*t);
+    paint(8-o,y);paint(9-o,y); paint(35+o,y);paint(36+o,y);
+  }
+  for(let y=2;y<=12;y++){ paint(3,y);paint(4,y); paint(40,y);paint(41,y); }    // 弯后直道
+}
+
+/* ================= 巡线状态（右手版，逐行对应 image.c） ================= */
+const FD=[[0,-1],[1,0],[0,1],[-1,0]], FR=[[1,-1],[1,1],[-1,1],[-1,-1]];
+const DIRN=['上','右','下','左'];
+let R, phase, running, speed, timer=null, sense=null, probe=null, done=false;
+function reset(){
+  buildTrack();
+  R={x:34,y:28,dir:0,turn:0,step:0,trail:[]};
+  phase='sense'; running=true; done=false; sense=null; probe=null;
+  document.getElementById('btnPlay').textContent='暂停';
+  schedule();
+}
+const V=(x,y)=> (x<0||x>=W||y<0||y>=H)?0:grid[y][x];
+
+/* ================= 状态机：sense → decide → move 循环 ================= */
+function stepOnce(){
+  if(done) return;
+  if(phase==='sense'){                                   // STEP1：7×7 邻域均值
+    let sum=0;
+    for(let dy=-3;dy<=3;dy++) for(let dx=-3;dx<=3;dx++) sum+=V(R.x+dx,R.y+dy);
+    const mean=Math.round(sum/49);
+    sense={sum,mean,thres:mean-4};
+    phase='decide';
+  }else if(phase==='decide'){                            // STEP2：前方 / 右前方采样判定
+    const f=FD[R.dir], r=FR[R.dir];
+    probe={fv:V(R.x+f[0],R.y+f[1]), frv:V(R.x+r[0],R.y+r[1])};
+    probe.branch = probe.fv<sense.thres?0 : (probe.frv<sense.thres?1:2);
+    phase='move';
+  }else{                                                 // STEP3：执行决策
+    const f=FD[R.dir], r=FR[R.dir];
+    if(probe.branch===0){ R.dir=(R.dir+3)%4; R.turn++; }
+    else if(probe.branch===1){ R.trail.push({x:R.x,y:R.y}); R.x+=f[0]; R.y+=f[1]; R.turn=0; R.step++; }
+    else { R.trail.push({x:R.x,y:R.y}); R.x+=r[0]; R.y+=r[1]; R.dir=(R.dir+1)%4; R.turn=0; R.step++; }
+    // 边界 / 包围 停线
+    if(R.x<=1||R.x>=W-2||R.y<=3||R.turn>=4){ done=true; running=false; }
+    phase='sense';
+  }
+  draw(); updatePanel();
+  if(!done&&running) schedule();
+}
+function schedule(){ clearTimeout(timer); timer=setTimeout(stepOnce,speed); }
+
+/* ================= 绘制 ================= */
+const ctx=document.getElementById('main').getContext('2d');
+const mctx=document.getElementById('mini').getContext('2d');
+function draw(){
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W*CELL,H*CELL);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const g=grid[y][x];
+    ctx.fillStyle=`rgb(${g},${g},${g})`;
+    ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
+  }
+  ctx.strokeStyle='rgba(0,0,0,.06)';                      // 淡网格
+  for(let x=0;x<=W;x++){ctx.beginPath();ctx.moveTo(x*CELL,0);ctx.lineTo(x*CELL,H*CELL);ctx.stroke();}
+  for(let y=0;y<=H;y++){ctx.beginPath();ctx.moveTo(0,y*CELL);ctx.lineTo(W*CELL,y*CELL);ctx.stroke();}
+  ctx.fillStyle='#e5534b';                                // 足迹
+  for(const t of R.trail) ctx.fillRect(t.x*CELL+4,t.y*CELL+4,CELL-8,CELL-8);
+  if(phase==='sense'&&sense){                             // STEP1：7×7 黄框
+    ctx.fillStyle='rgba(245,217,10,.22)';
+    ctx.fillRect((R.x-3)*CELL,(R.y-3)*CELL,7*CELL,7*CELL);
+    ctx.strokeStyle='#f5d90a'; ctx.lineWidth=2;
+    ctx.strokeRect((R.x-3)*CELL,(R.y-3)*CELL,7*CELL,7*CELL);
+  }
+  if(phase!=='sense'&&probe){                             // STEP2：采样点圈
+    const f=FD[R.dir], r=FR[R.dir];
+    ring(R.x+f[0],R.y+f[1],'#0969da'); ring(R.x+r[0],R.y+r[1],'#8250df');
+  }
+  // 爬虫：红圆 + 朝向三角
+  ctx.beginPath(); ctx.arc(R.x*CELL+CELL/2,R.y*CELL+CELL/2,CELL*.42,0,7);
+  ctx.fillStyle='#e5534b'; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+  const a=[[ -90,0],[0,90],[90,180],[180,270]][R.dir]*Math.PI/180;
+  ctx.beginPath();
+  ctx.moveTo(R.x*CELL+CELL/2+Math.cos(a)*CELL*.5, R.y*CELL+CELL/2+Math.sin(a)*CELL*.5);
+  ctx.lineTo(R.x*CELL+CELL/2+Math.cos(a+2.5)*CELL*.34, R.y*CELL+CELL/2+Math.sin(a+2.5)*CELL*.34);
+  ctx.lineTo(R.x*CELL+CELL/2+Math.cos(a-2.5)*CELL*.34, R.y*CELL+CELL/2+Math.sin(a-2.5)*CELL*.34);
+  ctx.fillStyle='#fff'; ctx.fill();
+  if(done){ ctx.fillStyle='rgba(26,127,55,.92)'; ctx.fillRect(W*CELL/2-92,8,184,30);
+    ctx.fillStyle='#fff'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText(R.turn>=4?'被黑包围，停线':'到达画面顶端，停线',W*CELL/2,28); }
+}
+function ring(x,y,c){ ctx.beginPath(); ctx.arc(x*CELL+CELL/2,y*CELL+CELL/2,CELL*.52,0,7);
+  ctx.strokeStyle=c; ctx.lineWidth=2.5; ctx.stroke(); }
+
+function updatePanel(){                                   // 右侧面板
+  const $=id=>document.getElementById(id);
+  if(sense){
+    $('cSum').textContent=sense.sum; $('cMean').textContent=sense.mean; $('cThres').textContent=sense.thres;
+    for(let dy=0;dy<7;dy++) for(let dx=0;dx<7;dx++){       // 邻域放大图
+      const g=V(R.x-3+dx,R.y-3+dy);
+      mctx.fillStyle=`rgb(${g},${g},${g})`; mctx.fillRect(dx*9,dy*9,9,9);
+    }
+    mctx.strokeStyle='#e5534b'; mctx.strokeRect(3*9+1,3*9+1,7,7);  // 中心点
+  }
+  if(probe){
+    $('vF').textContent=probe.fv; $('vR').textContent=probe.frv;
+    const bk=(v,t)=>v<t?['b-black','黑']:['b-white','白'];
+    let [c1,t1]=bk(probe.fv,sense.thres); $('bF').className='badge '+c1; $('bF').textContent=t1;
+    let [c2,t2]=bk(probe.frv,sense.thres); $('bR').className='badge '+c2; $('bR').textContent=t2;
+    for(let i=0;i<3;i++) $('br'+i).classList.toggle('on',i===probe.branch&&phase!=='sense');
+  }else for(let i=0;i<3;i++) $('br'+i).classList.remove('on');
+  $('sDir').textContent=DIRN[R.dir]; $('sStep').textContent=R.step; $('sTurn').textContent=R.turn;
+}
+
+/* ================= 控制 ================= */
+document.getElementById('btnPlay').onclick=e=>{
+  running=!running; e.target.textContent=running?'暂停':'播放';
+  if(running&&!done) schedule(); else clearTimeout(timer);
+};
+document.getElementById('btnStep').onclick=()=>{ running=false;
+  document.getElementById('btnPlay').textContent='播放'; clearTimeout(timer); stepOnce(); };
+document.getElementById('btnReset').onclick=reset;
+document.getElementById('speed').oninput=e=>{ speed=+e.target.value; };
+speed=550; reset();
+</script>
+</body>
+</html>

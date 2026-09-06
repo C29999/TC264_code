@@ -1,4 +1,5 @@
 #include "image.h"
+#include "camera_param.h"
 #include "IfxStm.h"
 #define IMAGE_OTSU_BLOCK_W      (188)  // 每个局部区域的宽度
 #define IMAGE_OTSU_BLOCK_H      (20)  // 每个局部区域的高度
@@ -18,6 +19,14 @@ int16 left_line_points[IPTS_MAX][2];
 int16 right_line_points[IPTS_MAX][2];
 uint16 left_line_count = 0;
 uint16 right_line_count = 0;
+
+/* ================ 鸟瞰图（逆透视） ================ */
+uint8 img_pers_data[PERS_H][PERS_W];                    // 鸟瞰灰度图
+image_t img_pers = { (uint8 *)img_pers_data, PERS_W, PERS_H, PERS_W };
+int16 touch_boundary0 = 0;      // 左巡线碰到图像边界
+int16 touch_boundary1 = 0;      // 右巡线碰到图像边界
+static int16 img_thres_val = 100; // 大津法算出的全图阈值，供巡线起点搜索复用
+
 // 二值图中白色像素的判断阈值。
 #define EDGE_WHITE_THRESHOLD (128)
 
@@ -315,7 +324,6 @@ static uint8 otsu_compute(const uint32 histogram[256], uint32 pixel_count)
         // 用 sumB*N - sum*wB 避免除法（等价于 wB*wF*(μB-μF)²）
         float diff = sum_back * (float)pixel_count - sum_total * (float)w_back;
         float var = (diff * diff) / ((float)w_back * (float)w_fore);
-
         if (var > var_max)
         {
             var_max = var;
@@ -355,10 +363,8 @@ void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W])
     }
     if (pixel_count == 0) return;
 
-    // === Step 2: 第一次大津 → T1 ===
     threshold = otsu_compute(histogram, pixel_count);
 
-    // === Step 3: 直方图重组（把低于 T1 的像素合并到 T1 位置） ===
     low_sum = 0;
     for (level = 0; level < threshold; level++)
     {
@@ -367,10 +373,8 @@ void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W])
     }
     histogram[threshold] += low_sum;
 
-    // === Step 4: 第二次大津 → T2（最终阈值） ===
     threshold = otsu_compute(histogram, pixel_count);
-
-    // === Step 5: 用 T2 二值化全图 ===
+    img_thres_val = threshold;      // 存到全局，巡线起点搜索复用同一阈值
     for (y = 0; y < MT9V03X_H; y++)
     {
         for (x = 0; x < MT9V03X_W; x++)
@@ -379,283 +383,275 @@ void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W])
         }
     }
 }
-/**
- * @brief 以左手法则沿二值图白边线进行路径追踪。
- * @details
- *      从起点 start_x, start_y 开始，沿着白色边线前进。
- *      该算法采用典型的“左手跟墙法”：
- *      - 正前方是白色且左前方是黑色：继续前进；
- *      - 正前方是黑色：说明前方有障碍，向右转；
- *      - 正前方和左前方都是白色：沿左前方方向前进并转向左。
- *      适用于迷宫、边线、白区跟踪等二值图场景。
- *
- * @param binary  输入二值图。
- * @param start_x 起点横坐标，必须在图像内部区域。
- * @param start_y 起点纵坐标，必须在图像内部区域。
- * @param points  输出路径点数组，按 [x, y] 的形式保存每一步经过的坐标。输入points[0][2]第二个坐标表示要输入2个数
- * @param point_count 输入时为 points 数组的最大容量；输出时为实际记录到的点数量。
- *
- * @note 该函数本质上是“左手迷宫法/跟墙法”，用于从某个白色起点沿白边线持续搜索并记录路径。
- */
-void findline_lefthand_binary(const uint8 binary[MT9V03X_H][MT9V03X_W], int16 start_x, int16 start_y, int16 points[][2], uint16 *point_count)
+/* ========================================================================
+ * 整图逆透视（查表版，与国一 anti_perspective_fast 同思路）
+ * 每个鸟瞰像素 (i,j) 查 invx/invy 得到原图坐标，直接拷贝灰度值
+ * 查表越界的像素填黑（防上一帧残留）
+ * 占位恒等表下鸟瞰图=原图；标定换真表后本函数一行不用改
+ * ======================================================================== */
+void anti_perspective_fast(void)
 {
-    uint16 max_points;
-    int16 x;
-    int16 y;
-    uint16 step;
-    int16 dir;
-    int16 turn;
-    int16 fx, fy, flx, fly;          // 前半段需要补这 4 个临时坐标变量
+    int16 i;
+    int16 j;
+    int16 sx;
+    int16 sy;
 
-    if (binary == 0 || points == 0 || point_count == 0)
+    for (i = 0; i < PERS_W; i++)
     {
-        return;
-    }
-
-    max_points = *point_count;
-
-    *point_count = 0;
-
-    if (max_points == 0)
-    {
-        return;
-    }                                // ← 这里补上右括号（原来漏了，是整个前半段唯一的错）
-
-    if ((start_x <= 0) || (start_x >= (MT9V03X_W - 1)) || (start_y <= 0) || (start_y >= (MT9V03X_H - 1)))
-    {
-        return;
-    }
-
-    if (binary[start_y][start_x] < EDGE_WHITE_THRESHOLD)
-    {
-        return;
-    }
-
-    x = start_x;
-    y = start_y;
-    dir = 0;                         // 初始朝上
-    turn = 0;
-    step = 0;
-
-    points[0][0] = x;                // 记录起点
-    points[0][1] = y;
-
-    while ((step < max_points - 1) && (x > 0) && (y > 0) && (x < MT9V03X_W - 1) && (y < MT9V03X_H - 1) && (turn < 4))
-    {
-        fx  = x + edge_dir_front[dir][0];
-        fy  = y + edge_dir_front[dir][1];
-        flx = x + edge_dir_frontleft[dir][0];
-        fly = y + edge_dir_frontleft[dir][1];
-
-        if (binary[fy][fx] >= EDGE_WHITE_THRESHOLD)        // 正前方是白
+        for (j = 0; j < PERS_H; j++)
         {
-            if (binary[fly][flx] >= EDGE_WHITE_THRESHOLD)  // 左前也是白 → 走左前并左转
+            sx = invx[j][i];
+            sy = invy[j][i];
+            if (sx >= 0 && sy >= 0 && sy < MT9V03X_H && sx < MT9V03X_W)
             {
-                dir = (dir + 3) % 4;
-                x = flx;
-                y = fly;
+                img_pers_data[j][i] = mt9v03x_image[sy][sx];
             }
-            else                                           // 左前是黑 → 直走
+            else
             {
-                x = fx;
-                y = fy;
+                img_pers_data[j][i] = 0;
             }
-            turn = 0;
-            step++;
-            points[step][0] = x;
-            points[step][1] = y;
         }
-        else                                               // 正前方是黑 → 右转，原地不动
+    }
+}
+/* ========================================================================
+ * 左手自适应巡线（国一 findline_lefthand_adaptive 逐行移植）
+ * 与旧二值图巡线的区别：ize 邻域
+ * 均值做局部阈值，对光照渐变更稳不依赖全图二值化，每步用 block_s
+ * 参数：img=要巡的图（鸟瞰灰度图） x,y=起点 pts=输出边线点[x,y]
+ *       num=输入容量上限/输出实际点数
+ * ======================================================================== */
+void findline_lefthand_adaptive(image_t *img, int16 block_size, int16 clip_value, int16 x, int16 y, int16 pts[][2], int16 *num)
+{
+    int16 half = block_size / 2;
+    int16 step = 0, dir = 0, turn = 0;
+
+    while (step < *num &&
+           half < x &&
+           x < img->width - half - 1 &&
+           y < img->height - half - 1 &&
+           turn < 4)
+    {
+        int16 local_thres = 0;
+
+        for (int16 dy = -half; dy <= half; dy++)
         {
-            dir = (dir + 1) % 4;
+            for (int16 dx = -half; dx <= half; dx++)
+            {
+                local_thres += AT_IMAGE(img, x + dx, y + dy);
+            }
+        }
+        local_thres /= block_size * block_size;
+        local_thres -= clip_value;
+
+        int16 front_value     = AT_IMAGE(img, x + edge_dir_front[dir][0],     y + edge_dir_front[dir][1]);
+        int16 frontleft_value = AT_IMAGE(img, x + edge_dir_frontleft[dir][0], y + edge_dir_frontleft[dir][1]);
+
+        // 碰到图像边界：置标志并停线（该侧边线"断"了，是十字/环岛重要判据）
+        if ((x == 1 && y < img->height - 20) || x == img->width - 2 || y == 1)
+        {
+            touch_boundary0 = 1;
+            break;
+        }
+
+        if (front_value < local_thres)
+        {
+            dir = (dir + 1) % 4;                    // 正前方黑：右转
             turn++;
         }
-    }
-
-    *point_count = step + 1;
-}
-void findline_righthand_binary(const uint8 binary[MT9V03X_H][MT9V03X_W], int16 start_x, int16 start_y, int16 points[][2], uint16 *point_count)
-{
-    uint16 max_points;
-    int16 x;
-    int16 y;
-    uint16 step;
-    int16 dir;
-    int16 turn;
-    int16 fx, fy, frx, fry;
-
-    if (binary == 0 || points == 0 || point_count == 0)
-    {
-        return;
-    }
-
-    max_points = *point_count;
-    *point_count = 0;
-
-    if (max_points == 0)
-    {
-        return;
-    }
-
-    if ((start_x <= 0) || (start_x >= (MT9V03X_W - 1)) || (start_y <= 0) || (start_y >= (MT9V03X_H - 1)))
-    {
-        return;
-    }
-
-    if (binary[start_y][start_x] < EDGE_WHITE_THRESHOLD)
-    {
-        return;
-    }
-
-    x = start_x;
-    y = start_y;
-    dir = 0;
-    turn = 0;
-    step = 0;
-
-    points[0][0] = x;
-    points[0][1] = y;
-
-    while ((step < max_points - 1) && (x > 0) && (y > 0) && (x < MT9V03X_W - 1) && (y < MT9V03X_H - 1) && (turn < 4))
-    {
-        fx  = x + edge_dir_front[dir][0];
-        fy  = y + edge_dir_front[dir][1];
-        frx = x + edge_dir_frontright[dir][0];
-        fry = y + edge_dir_frontright[dir][1];
-
-        if (binary[fy][fx] >= EDGE_WHITE_THRESHOLD)        // 正前方白
+        else if (frontleft_value < local_thres)
         {
-            if (binary[fry][frx] >= EDGE_WHITE_THRESHOLD)  // 右前也白 → 走右前并右转
-            {
-                dir = (dir + 1) % 4;
-                x = frx;
-                y = fry;
-            }
-            else                                           // 右前黑 → 直走
-            {
-                x = fx;
-                y = fy;
-            }
-            turn = 0;
+            x += edge_dir_front[dir][0];            // 左前黑：直行
+            y += edge_dir_front[dir][1];
+            pts[step][0] = x;
+            pts[step][1] = y;
             step++;
-            points[step][0] = x;
-            points[step][1] = y;
+            turn = 0;
         }
-        else                                               // 正前方黑 → 左转
+        else
         {
+            x += edge_dir_frontleft[dir][0];        // 前方全白：走左前并左转
+            y += edge_dir_frontleft[dir][1];
             dir = (dir + 3) % 4;
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
+        }
+    }
+    *num = step;
+}
+/* ========================================================================
+ * 右手自适应巡线（国一 findline_righthand_adaptive 逐行移植）
+ * 与左手版镜像：正前黑→左转，右前黑→直行，前方全白→走右前并右转
+ * ======================================================================== */
+void findline_righthand_adaptive(image_t *img, int16 block_size, int16 clip_value, int16 x, int16 y, int16 pts[][2], int16 *num)
+{
+    int16 half = block_size / 2;
+    int16 step = 0, dir = 0, turn = 0;
+
+    while (step < *num &&
+           0 < x &&
+           x < img->width - 3 &&
+           y < img->height - 1 &&
+           turn < 4)
+    {
+        int16 local_thres = 0;
+
+        for (int16 dy = -half; dy <= half; dy++)
+        {
+            for (int16 dx = -half; dx <= half; dx++)
+            {
+                local_thres += AT_IMAGE(img, x + dx, y + dy);
+            }
+        }
+        local_thres /= block_size * block_size;
+        local_thres -= clip_value;
+
+        int16 front_value      = AT_IMAGE(img, x + edge_dir_front[dir][0],      y + edge_dir_front[dir][1]);
+        int16 frontright_value = AT_IMAGE(img, x + edge_dir_frontright[dir][0], y + edge_dir_frontright[dir][1]);
+
+        // 碰到图像边界：置标志并停线
+        if ((x == img->width - 2 && y < img->height - 20) || x == 1 || y == 1)
+        {
+            touch_boundary1 = 1;
+            break;
+        }
+        if (front_value < local_thres)
+        {
+            dir = (dir + 3) % 4;                    // 正前方黑：左转
             turn++;
         }
-    }
-
-    *point_count = step + 1;
-}
-static void find_binary_start(const uint8 binary[MT9V03X_H][MT9V03X_W], int16 *y, int16 *left_x, int16 *right_x)
-{
-    int16 x;
-    int16 yy;
-
-    //从底部往上找第一行有白点的行，自动跳过底部黑边脏区
-    for (yy = MT9V03X_H - 3; yy > MT9V03X_H / 2; yy--)
-    {
-        for (x = 1; x < MT9V03X_W - 1; x++)
+        else if (frontright_value < local_thres)
         {
-            if (binary[yy][x] >= EDGE_WHITE_THRESHOLD) break;   //这行扫到白点了
+            x += edge_dir_front[dir][0];            // 右前黑：直行
+            y += edge_dir_front[dir][1];
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
         }
-        if (x < MT9V03X_W - 1)
+        else
         {
-            break;      //说明这行有白点，就是有效起跑行
+            x += edge_dir_frontright[dir][0];       // 前方全白：走右前并右转
+            y += edge_dir_frontright[dir][1];
+            dir = (dir + 1) % 4;
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
         }
     }
-
-    *y = yy;        //把实际用的行号带回去给调用方
-
-    //向上搜行时停下的x恰好就是该行第一个白点，直接当左边线用
-    if (x >= MT9V03X_W - 1)
-    {
-        *left_x = 1;        //兜底：半幅图全黑没找到白点
-    }
-    else
-    {
-        *left_x = x;
-    }
-
-    for (x = MT9V03X_W - 2; x >= 0; x--)
-    {
-        if (binary[yy][x] >= EDGE_WHITE_THRESHOLD) break;    // 找到最后一个白点
-    }
-    if (x <= 0)
-    {
-        *right_x = MT9V03X_W - 2;
-    }
-    else
-    {
-        *right_x = x;
-    }
+    *num = step;
 }
-void find_edges_binary(void)
+/* ========================================================================
+ * 鸟瞰图巡线入口（替代原 find_edges_binary，国一 PERSFIRST 模式）
+ * 起点搜索：固定起始行 PERS_BEGIN_Y，从画面中心±PERS_BEGIN_X
+ * 向两侧搜第一个黑像素即为该侧边线
+ * 起点判黑用大津阈值 img_thres_val，之后巡线全靠局部自适应阈值
+ * ======================================================================== */
+void find_edges_pers(void)
 {
-    int16 left_x,right_x;
-    int16 y0=MT9V03X_H-3;
-    left_line_count=IPTS_MAX;
-    right_line_count=IPTS_MAX;
+    int16 x0;
+    int16 x1;
+    int16 y0 = PERS_BEGIN_Y;
+    int16 n0;
+    int16 n1;
 
-    find_binary_start(image_binary,&y0,&left_x,&right_x);  
+    touch_boundary0 = 0;
+    touch_boundary1 = 0;
 
-    findline_lefthand_binary(image_binary,left_x,y0,left_line_points,&left_line_count);
-    findline_righthand_binary(image_binary,right_x,y0,right_line_points,&right_line_count); 
+    // 左起点：从中心-偏移向左搜，停下处即左边线
+    for (x0 = MT9V03X_W / 2 - PERS_BEGIN_X; x0 > 0; x0--)
+    {
+        if (img_pers_data[y0][x0 - 1] < img_thres_val)
+        {
+            break;
+        }
+    }
+    left_line_count = 0;                          // 默认没找到左边线
+    if (img_pers_data[y0][x0] >= img_thres_val)
+    {
+        n0 = IPTS_MAX;
+        findline_lefthand_adaptive(&img_pers, PERS_BLOCK_SIZE, PERS_CLIP_VALUE, x0, y0, left_line_points, &n0);
+        left_line_count = n0;
+    }
+
+    // 右起点：从中心+偏移向右搜，停下处即右边线
+    for (x1 = MT9V03X_W / 2 + PERS_BEGIN_X; x1 < PERS_W - 2; x1++)
+    {
+        if (img_pers_data[y0][x1 + 1] < img_thres_val)
+        {
+            break;
+        }
+    }
+    right_line_count = 0;                         // 默认没找到右边线
+    if (img_pers_data[y0][x1] >= img_thres_val)
+    {
+        n1 = IPTS_MAX;
+        findline_righthand_adaptive(&img_pers, PERS_BLOCK_SIZE, PERS_CLIP_VALUE, x1, y0, right_line_points, &n1);
+        right_line_count = n1;
+    }
 }
+/**
+ * 前瞻角误差计算
+ * 鸟瞰米制坐标下：中线前瞻点相对车头方向的偏角 → pure_angle（方向环输入，单位：度）
+ * 三分支：双边取中线前瞻 / 单边±米制半宽补线 / 全丢保持上次输出
+ */
 void calculation_error(void)
 {
-    int16 y_yow;        //偏差采样行
-    int16 left_x;       //采样行的左边线x
-    int16 right_x;      //采样行的右边线x
-    uint16 i;
+    int16 aim_idx;
+    int16 n_min;
+    float mx, my;
+    float dx, dy, dn;
+    float cx, cy;
+    float half_w;
 
-    y_yow = MT9V03X_H - 10;     //110行
-    left_x = -1;
-    right_x = -1;
+    // 车头投影位置：鸟瞰图底部中央（像素→米）
+    cx = MT9V03X_W / 2 / pixel_per_meter;
+    cy = (MT9V03X_H - 10) / pixel_per_meter;
 
-    //边线点从底部往上记，找第一个y<=y_yow的点就是采样行的边线
-    for (i = 0; i < left_line_count; i++)
-    {
-        if (left_line_points[i][1] <= y_yow)
-        {
-            left_x = left_line_points[i][0];
-            break;
-        }
-    }
+    // 米制半赛道宽（单边补线用）
+    half_w = TRACK_HALF_W / pixel_per_meter;
 
-    for (i = 0; i < right_line_count; i++)
-    {
-        if (right_line_points[i][1] <= y_yow)
-        {
-            right_x = right_line_points[i][0];
-            break;
-        }
-    }
-    if (left_x >= 0 && right_x >= 0)   //双边都在：取平均当中线
-    {
-        mid = (left_x + right_x) / 2;
-        image_error = mid - image_center;
-        stop_flog = 0;
-    }
-    else if (left_x >= 0)              //只有左线：左线+半宽 当虚拟中线
-    {
-        mid = left_x + TRACK_HALF_W;
-        image_error = mid - image_center;
-    }
-    else if (right_x >= 0)             //只有右线：右线-半宽 当虚拟中线
-    {
-        mid = right_x - TRACK_HALF_W;
-        image_error = mid - image_center;
-    }
-    else                               //两边全丢：误差保持上次值
-    {
+    // 前瞻点序号：aim_distance(米) ÷ 采样间距(米)
+    aim_idx = (int16)(aim_distance / sample_dist);
 
+    // 左右点云取短的那个长度做中点
+    n_min = (rpts0s_num < rpts1s_num) ? rpts0s_num : rpts1s_num;
+
+    if (n_min >= 3)                        //双边正常：中线前瞻点
+    {
+        if (aim_idx > n_min - 1) aim_idx = n_min - 1;
+        mx = (rpts0s[aim_idx][0] + rpts1s[aim_idx][0]) / 2;
+        my = (rpts0s[aim_idx][1] + rpts1s[aim_idx][1]) / 2;
     }
-    //一阶低通：新值占1/4，旧值占3/4
-    image_error_filter = image_error_filter+(image_error - image_error_filter) / 4;
+    else if (rpts0s_num >= 3)              //只有左线：+半宽补虚拟中线
+    {
+        if (aim_idx > rpts0s_num - 1) aim_idx = rpts0s_num - 1;
+        mx = rpts0s[aim_idx][0] + half_w;
+        my = rpts0s[aim_idx][1];
+    }
+    else if (rpts1s_num >= 3)              //只有右线：-半宽补虚拟中线
+    {
+        if (aim_idx > rpts1s_num - 1) aim_idx = rpts1s_num - 1;
+        mx = rpts1s[aim_idx][0] - half_w;
+        my = rpts1s[aim_idx][1];
+    }
+    else                                    //全丢：保持上次输出
+    {
+        return;
+    }
+    //车头指向前瞻点的向量（y向上为正）
+    dx = mx - cx;
+    dy = cy - my;
+    dn = sqrtf(dx * dx + dy * dy);
+    if (dn < 0.01f) return;
+
+    //前瞻偏角（度）：前瞻点在车头右侧时 dx>0 → 偏角为负
+    pure_angle = -atan2f(dx, dy) * 57.2958f;
+    //
+    image_error_filter = (int16)pure_angle;
+    mid = (int16)(mx * pixel_per_meter);   // 中线前瞻点 x 像素坐标
 }
 //出赛道保护
 void track_protection(void)
@@ -813,19 +809,6 @@ void blur_points(float pts_in[][2],int16 num,float pts_out[][2],int16 kernel)
  *   num2    - 输入时=输出容量(POINTS_MAX_LEN)，返回时=实际点数
  *   dist    - 采样间距（sample_dist=0.02，单位与 pixel_per_meter 绑定）
  *  */
-/* ========================================================================
- * L2：等距重采样
- * 功能：把间距不均的边线点重新取点，让相邻点距离恒为 dist
- * 为什么是核心：原始边线点直道稀疏、弯道密集，无法做"距离"判断；
- *              重采样后 点数=距离，"1.6米内找角点"才能实现
- * 原理：remain 累加器——沿曲线一段段走，每走满 dist 距离插一个点
- * 参数：
- *   pts_in  - 输入点集（L1 平滑后）
- *   num1    - 输入点数
- *   pts_out - 输出等距点集（L2）
- *   num2    - 输入时=输出容量(POINTS_MAX_LEN)，返回时=实际点数
- *   dist    - 采样间距（sample_dist=0.02，单位与 pixel_per_meter 绑定）
- * ======================================================================== */
 void resample_points(float pts_in[][2],int16 num1,float pts_out[][2],int16 *num2,float dist)
 {
     float remain=0;         // 距上次插点已走过的距离
@@ -950,7 +933,7 @@ void nms_angle(float angle_in[],int16 num,float angle_out[],int16 kernel)
 }
 /* ========================================================================
  * 桥接函数：int16 边线 → 4级点云流水线
- * 调用时机：主循环里 find_edges_binary() 之后（每帧一次）
+ * 调用时机：主循环里 find_edges_pers() 之后（每帧一次）
  * 数据流：
  *   left_line_points(int16) → rpts0(float) → rpts0b(平滑) → rpts0s(等距)
  *   → rpts0a(角度) → rpts0an(NMS)
@@ -965,13 +948,13 @@ void process_edge_points(void)
 
     for(i=0;i<rpts0_num;i++)
     {
-        rpts0[i][0]=(float)left_line_points[i][0];
-        rpts0[i][1]=(float)left_line_points[i][1];
+        rpts0[i][0]=left_line_points[i][0]/pixel_per_meter;   //像素→米,让sample_dist(米)有真实意义
+        rpts0[i][1]=left_line_points[i][1]/pixel_per_meter;
     }
     for(i=0;i<rpts1_num;i++)
     {
-        rpts1[i][0]=(float)right_line_points[i][0];
-        rpts1[i][1]=(float)right_line_points[i][1];
+        rpts1[i][0]=right_line_points[i][0]/pixel_per_meter;
+        rpts1[i][1]=right_line_points[i][1]/pixel_per_meter;
     }
 
     /* ---- L1：平滑（kernel=3）---- */
@@ -996,9 +979,10 @@ void process_edge_points(void)
     rpts1a_num=rpts1s_num;
 
     /* ---- L4：NMS ---- */
-    nms_angle(rpts0a,rpts0a_num,rpts0an,3);
+    
+    nms_angle(rpts0a,rpts0a_num,rpts0an,7);
     rpts0an_num=rpts0s_num;
-    nms_angle(rpts1a,rpts1a_num,rpts1an,3);
+    nms_angle(rpts1a,rpts1a_num,rpts1an,7);
     rpts1an_num=rpts1s_num;
 
     /* ---- 找角点（函数还没写，先注释掉）----

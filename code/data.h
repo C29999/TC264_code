@@ -1,6 +1,7 @@
 #ifndef DATA_H
 #define DATA_H
 #include "zf_common_headfile.h"
+#include "pid.h"
 extern uint8 wifi_ok_flag;
 extern uint8 wifi_flag;
 extern uint8 wifi_init_flag;
@@ -16,8 +17,9 @@ extern int16 mid; //赛道中点的位置
 extern int16 image_error_filter;//图像误差滤波
 
 extern uint8 stop_flog;
-extern int16 base_speed;    //基础速度目标(编码器计数/10ms)
-extern int16 dif_val;       //方向中环输出的差速量
+extern int16 base_speed, straight_speed, long_straight_speed;
+extern float pure_angle, pure_rad, aim_distance, angle, turn_diff;
+
 
 void data_init(void);
 void data_debug(void);

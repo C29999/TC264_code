@@ -1,34 +1,48 @@
-#ifndef __PID_H__
-#define __PID_H__
-
+#ifndef _PID_H_
+#define _PID_H_
 #include "zf_common_headfile.h"
+
+// 限幅宏
+#define MINMAX(x, min, max)  ((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
+#define MAX(a, b)  ((a) > (b) ? (a) : (b))
+// 角度弧度互转（带 PID_ 前缀，避免和 image.h 的 IMG_ANGLE_TO_RAD 冲突）
+#define PID_ANGLE_TO_RAD(x)  ((x) * PI / 180.0f)
+#define PID_RAD_TO_ANGLE(x)  ((x) * 180.0f / PI)
+
 typedef struct
 {
-    float kp;
-    float ki;
-    float kd;
-    float low_pass;     //D项低通：1=不滤波，越小越平滑
+    float kp;               // P 系数
+    float ki;               // I 系数
+    float kd;               // D 系数
+    float i_max;            // 积分限幅
+    float p_max;            // P 项限幅
+    float d_max;            // D 项限幅
+    float low_pass;         // 微分低通系数 0~1，越大滤波越弱
+    float kgyro;            // 陀螺抑制系数：方向环专用，其他环填0
+    float out_p;            // P 项输出
+    float out_i;            // I 项输出
+    float out_d;            // D 项输出（滤波后）
+    float error;            // 当前误差
+    float pre_error;        // 上次误差
+    float pre_pre_error;    // 上上次误差
+    float output;           // 本次输出
+    float pre_output;       // 上次输出（抗反接保护用）
+} pid_param_t;
 
-    float error_last;   //e(k-1)
-    float error_prev;   //e(k-2)
+// 初始化宏：PID_CREATE(kp, ki, kd, low_pass, p_max, i_max, d_max, kgyro)
+#define PID_CREATE(kp_, ki_, kd_, lp_, pmax_, imax_, dmax_, kgyro_)  \
+    { .kp=(kp_), .ki=(ki_), .kd=(kd_), .low_pass=(lp_),              \
+      .p_max=(pmax_), .i_max=(imax_), .d_max=(dmax_), .kgyro=(kgyro_) }
 
-    float out_p;
-    float out_i;
-    float out_d;
+extern pid_param_t servo_pid;           
+extern pid_param_t motor_pid_l;         
+extern pid_param_t motor_pid_r;        
+extern pid_param_t motor_pid_l_bangbang;
+extern pid_param_t motor_pid_r_bangbang;
 
-    float out;
-    float out_max;
-    float out_min;
-    float integral_max;
-} pid_t;
-
-extern pid_t angle_steer_pid;   //方向外环（现在=视觉误差→差速）
-extern pid_t angle_speed_pid;   //方向内环（陀螺仪角速度环，以后串级用）
-extern pid_t speed_l_pid;       //左轮速度环
-extern pid_t speed_r_pid;       //右轮速度环
-void pid_init(pid_t *pid, float kp, float ki, float kd, float low_pass,float out_max, float out_min, float integral_max);
-float pid_cal(pid_t *pid, float error);
-float pid_cal_inc(pid_t *pid, float error);
-void speed_control(void);   //速度内环（10ms，isr.c 调用）
+float quadradic_pid_solve(pid_param_t *pid, float error);  
+float increment_pid_solve(pid_param_t *pid, float error);  
+float changable_pid_solve(pid_param_t *pid, float error);   
+float bangbang_pid_solve(pid_param_t *pid, float error);    
 
 #endif

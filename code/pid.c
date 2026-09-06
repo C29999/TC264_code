@@ -1,90 +1,112 @@
 #include "pid.h"
+#include "imu.h"
 
-// 速度控制的代码
-pid_t angle_steer_pid;
-pid_t angle_speed_pid;
-pid_t speed_l_pid;
-pid_t speed_r_pid;
-void speed_control(void)
-{
-    float expect_gyro;//外环输出。期望角速度
-    int16 l_goal;
-    int16 r_goal;
-
-    if(stop_flog)
-    {
-        expect_gyro = 0.0f;
-    }
-    else
-    {
-        expect_gyro = pid_cal(&angle_steer_pid, image_error_filter);//外环：图像偏出输出期望角速度
-    }
-    dif_val=(int16)pid_cal(&angle_speed_pid, expect_gyro);//中环：期望角速度输出差速量
-    if(stop_flog)
-    {
-        l_goal = 0;
-        r_goal = 0;
-    }
-    else
-    {
-        l_goal = base_speed+dif_val;
-        r_goal = base_speed-dif_val;
-    }
-    go_motor((int16)pid_cal_inc(&speed_l_pid, l_goal-encoder_left), (int16)pid_cal_inc(&speed_r_pid, r_goal-encoder_right));
-
-}
-void pid_init(pid_t *pid, float kp, float ki, float kd, float low_pass,float out_max, float out_min, float integral_max)
-{
-    pid->kp = kp;
-    pid->ki = ki;
-    pid->kd = kd;
-    pid->low_pass = low_pass;
-    pid->out_max = out_max;
-    pid->out_min = out_min;
-    pid->integral_max = integral_max;
-}
 /**
- * @brief 位置式PID计算
- * @param pid PID结构体指针
- * @param error 当前误差 = 目标值 - 实际值
- *              方向环：直接传image_error_filter（像素偏差）
- *              （目标恒为0，已隐含在 mid-94 的减法里，不用再减）
- * @return 本次输出总量（已限幅），单位由调用方决定
- *              方向环：输出dif_val差速量（速度单位，不是占空比）
- * @addtogroup out = kp*e + ki*∫e + kd*Δe
- *              积分带integral_max限幅防饱和；D项一阶低通，low_pass=1时不滤波
- * @note 输入输出单位由各环自定，参数量级不可跨环套用
+ * 方向环主力：平方P PD + 陀螺抑制
+ * 和普通PD的区别：P = kp*e²/12500 + ki，误差越大P越猛（弯道自动加力）
+ * D项是低通滤波后的误差本身（微分先行思想，抑制噪声）
+ * 末尾 - gyro_z*kgyro：车已经在转就反向抵消一部分，防止舵机打过冲
+ * 输出单位：舵机角度（度）
+ * 注意12500、kgyro都是配套的标定量，只改kp/ki/kd时不要动它
  */
-float pid_cal(pid_t *pid, float error)
+float quadradic_pid_solve(pid_param_t *pid, float error)
 {
-    pid->out_p = pid->kp * error;
+    pid->out_p = pid->kp * error * error / 12500.f + pid->ki;
 
-    pid->out_i += pid->ki * error;
-    if (pid->out_i > pid->integral_max) pid->out_i = pid->integral_max;
-    if (pid->out_i < -pid->integral_max) pid->out_i = -pid->integral_max;
+    // 真正的微分先行 + 一阶低通（抑制噪声）
+    float diff = error - pid->pre_error;
+    pid->out_d = diff * pid->low_pass + pid->out_d * (1.f - pid->low_pass);
 
-    pid->out_d = pid->kd * (error - pid->error_last) * pid->low_pass+pid->out_d * (1.0f - pid->low_pass);
+    pid->pre_pre_error = pid->pre_error;
+    pid->pre_error = error;
 
-    pid->out = pid->out_p + pid->out_i + pid->out_d;
-
-    if (pid->out > pid->out_max) pid->out = pid->out_max;
-    if (pid->out < pid->out_min) pid->out = pid->out_min;
-
-    pid->error_last = error;
-    return pid->out;
+    return MINMAX(error * pid->out_p, -pid->p_max, pid->p_max)
+         + MINMAX(pid->kd * pid->out_d, -pid->d_max, pid->d_max)
+         - gyro_z * pid->kgyro;
 }
-float pid_cal_inc(pid_t *pid, float error)
+
+/**
+ * 速度环：增量式 PID
+ * delta = kp*(e-e1) + ki*e + kd*(e-2e1+e2)，输出累加到占空比
+ * pre_output 保护：上次输出已顶到±10000还同向 → 强制归零，防电机堵转烧管
+ * 输入输出单位：编码器误差 → PWM占空比
+ */
+float increment_pid_solve(pid_param_t *pid, float error)
 {
-    float delta;
+    pid->out_d = MINMAX(pid->kd * (error - 2 * pid->pre_error + pid->pre_pre_error), -pid->d_max, pid->d_max);
+    pid->out_p = MINMAX(pid->kp * (error - pid->pre_error), -pid->p_max, pid->p_max);
+    pid->out_i = MINMAX(pid->ki * error, -pid->i_max, pid->i_max);
 
-    delta = pid->kp * (error - pid->error_last)+pid->ki * error+pid->kd * (error - 2.0f * pid->error_last + pid->error_prev);
+    pid->pre_pre_error = pid->pre_error;
+    pid->pre_error = error;
 
-    pid->out += delta;
+    pid->output = pid->out_p + pid->out_i + pid->out_d;
 
-    if (pid->out > pid->out_max) pid->out = pid->out_max;
-    if (pid->out < pid->out_min) pid->out = pid->out_min;
+    if (pid->pre_output > 10000)
+        if (pid->output > 0)
+            pid->output = 0.;
+    if (pid->pre_output < -10000)
+        if (pid->output < 0)
+            pid->output = 0.;
 
-    pid->error_prev = pid->error_last;
-    pid->error_last = error;
-    return pid->out;
+    pid->pre_output = pid->output;
+    return pid->output;
+}
+
+/**
+ * 备用：变积分增量式。误差大时 ki 按 S 曲线衰减（积分快退），防大偏差积饱和
+ * 
+ */
+float changable_pid_solve(pid_param_t *pid, float error)
+{
+    pid->out_d = MINMAX(pid->kd * (error - 2 * pid->pre_error + pid->pre_pre_error), -pid->d_max, pid->d_max);
+    pid->out_p = MINMAX(pid->kp * (error - pid->pre_error), -pid->p_max, pid->p_max);
+
+    float ki_index = pid->ki;
+    if (error + pid->pre_error > 0)
+        ki_index = MAX((pid->ki) - (pid->ki) / (1.f + expf(100.f - 0.2f * fabsf(error))), 0.);
+
+    pid->out_i = MINMAX(ki_index * error, -pid->i_max, pid->i_max);
+
+    pid->pre_pre_error = pid->pre_error;
+    pid->pre_error = error;
+
+    pid->output = pid->out_p + pid->out_i + pid->out_d;
+
+    if (pid->pre_output > 10000)
+        if (pid->output > 0)
+            pid->output = 0.;
+    if (pid->pre_output < -10000)
+        if (pid->output < 0)
+            pid->output = 0.;
+
+    pid->pre_output = pid->output;
+    return pid->output;
+}
+
+/**
+ * 备用：BangBang。误差>8°直接全速打（15000），否则退化成普通增量式
+ * 配合直道冲刺变速用，先抄了备用
+ */
+float bangbang_pid_solve(pid_param_t *pid, float error)
+{
+    float out;
+    pid->error = error;
+
+    if (error > 8 || error < -8)
+    {
+        out = (error > 0) ? 15000.f : -15000.f;
+    }
+    else
+    {
+        pid->out_d = pid->kd * (error - 2 * pid->pre_error + pid->pre_pre_error);
+        pid->out_p = pid->kp * (error - pid->pre_error);
+        pid->out_i = pid->ki * error;
+        out = MINMAX(pid->out_p, -pid->p_max, pid->p_max)
+            + MINMAX(pid->out_i, -pid->i_max, pid->i_max)
+            + MINMAX(pid->out_d, -pid->d_max, pid->d_max);
+    }
+    pid->pre_pre_error = pid->pre_error;
+    pid->pre_error = error;
+    return out;
 }

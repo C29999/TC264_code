@@ -1,6 +1,7 @@
 #include "display.h"
 #include "pid.h"
 #include "data.h"
+#include "isr.h"
 
 //前向声明：这些static函数定义在display_draw()后面，ctc编译器必须先声明才能调用
 static void display_main_drow(void);
@@ -17,7 +18,7 @@ static uint16 bold_text_buffer[BOLD_TEXT_BUFFER_WIDTH * 16];
 static page_t last_display_page = PAGE_MAIN;
 
 #define TUNING_MENU_NUM     (2)     //调参一级目录数量：0=PID, 1=SPEED
-#define PID_PARAM_NUM       (10)    //PID编辑页参数数
+#define PID_PARAM_NUM       (9)     //PID编辑页参数数
 #define SPEED_PARAM_NUM     (3)     //SPEED编辑页参数数
 static uint8 tuning_level  = 0;    //0=目录态，1=参数编辑态
 static uint8 tuning_select = 0;    //目录态：当前目录项
@@ -91,8 +92,8 @@ static void ink_draw_frame(const uint8 font[][32], uint16 ch_num, uint16 ink_w, 
     x0 = (ips200_width_max  > ink_w) ? (uint16)((ips200_width_max  - ink_w) / 2) : 0;
     y0 = (ips200_height_max > INK_CHAR_H) ? (uint16)((ips200_height_max - INK_CHAR_H) / 2) : 0;
 
-    for (row = 0; row < INK_CHAR_H; row++)              // 逐行拼出整帧RGB565显存
-    {
+    for (row = 0; row < INK_CHAR_H; row++)              
+        {
         for (ci = 0; ci < ch_num; ci++)
         {
             byte_h = font[ci][row * 2];                 // 该行左半字节
@@ -229,11 +230,11 @@ static uint16 edge_map_y(int16 y)
 {
     if (y < 0)   y = 0;
     if (y > 119) y = 119;
-    return (uint16)(y * 80 / 120);
+    return 180 + (uint16)(y * 80 / 120);
 }
 void show_draw_edges(void)
 {
-    const uint16 by = 0;     // 二值图显示区域原点 y
+    const uint16 by = 180;     // 鸟瞰图显示区域原点 y
     uint16 i;
 
     // 图像中心竖线：黄色，画在二值图上（无论有没有边线都显示）
@@ -299,23 +300,24 @@ void show_draw_edges(void)
 void display_draw(void)
 {
     diplay_key_control();
-    if (mt9v03x_finish_flag)
-    {
-        ips200_show_gray_image(0,0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
-        ips200_show_gray_image(127,0, (const uint8 *)image_binary[0], MT9V03X_W, MT9V03X_H, 110, 80, 0);
-        show_draw_edges();   // 图和边线同帧：刷完图立刻画线，每帧只画一次
-    }
+if (mt9v03x_finish_flag)
+{
+    ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
+    ips200_show_gray_image(127, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 110, 80, 128);   
+    ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
+    show_draw_edges();
+}
     if(current_page == PAGE_MAIN)
     {
         display_main_drow();
         sprintf(show_buf,"fps:%d",fps);
-        show_red_bold(108,108, show_buf, RGB565_PINK);
+        show_red_bold(90,108, show_buf, RGB565_PINK);
         sprintf(show_buf,"center:%03d",image_center);
-        show_red_bold(108,128, show_buf, RGB565_PINK);
+        show_red_bold(90,128, show_buf, RGB565_PINK);
         sprintf(show_buf,"mid:%03d",mid);
-        show_red_bold(108,148, show_buf, RGB565_PINK);
+        show_red_bold(90,148, show_buf, RGB565_PINK);
         sprintf(show_buf,"error:%03d",image_error_filter);
-        show_red_bold(108,168, show_buf, RGB565_PINK);
+        show_red_bold(90,168, show_buf, RGB565_PINK);
     }
     else if(current_page == PAGE_DATA)
     {
@@ -329,15 +331,15 @@ void display_draw(void)
         show_red_bold(0,128, show_buf, RGB565_GREEN);
         sprintf(show_buf,"speed:%03d",base_speed);
         show_red_bold(0,148, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"dif_val:%03d",dif_val);
+        sprintf(show_buf,"servo:%05.1f",(double)angle);
         show_red_bold(0,168, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"l_goal:%03d",base_speed+dif_val);
+        sprintf(show_buf,"pure:%05.1f",(double)pure_angle);
         show_red_bold(0,188, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"r_goal:%03d",base_speed-dif_val);
+        sprintf(show_buf,"aim :%05.2f",(double)aim_distance);
         show_red_bold(0,208, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"l_out:%03d",(int)speed_l_pid.out);
+        sprintf(show_buf,"l_out:%03d",(int)motor_pid_l.output);
         show_red_bold(0,228, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"r_out:%03d",(int)speed_r_pid.out);
+        sprintf(show_buf,"r_out:%03d",(int)motor_pid_r.output);
         show_red_bold(0,248, show_buf, RGB565_GREEN);
         sprintf(show_buf,"error:%03d",image_error_filter);
         show_red_bold(0,268, show_buf, RGB565_GREEN);
@@ -379,9 +381,12 @@ void display_main_drow(void)
 //
 static float pid_step(uint8 i)
 {
-    if (i == 1 || i == 4 || i == 7) return 0.05f;   //ki
-    if (i == 3 || i == 6 || i == 9) return 0.05f;   //low_pass
-    return 0.10f;                                    //kp/kd
+    if (i == 0) return 5.0f;      //servo.kp (量级170)
+    if (i == 4) return 0.01f;     //servo.kgyro
+    if (i == 1 || i == 6) return 0.1f;   //ki
+    if (i == 2 || i == 7) return 0.5f;   //kd
+    if (i == 3 || i == 8) return 0.05f;  //low_pass
+    return 1.0f;                  //motor.kp (i==5)
 }
 
 //根据编辑页和项号，修改对应参数
@@ -394,26 +399,25 @@ static void param_apply_delta(int8 sign)
         step = pid_step(param_cursor) * (float)sign;
         switch (param_cursor)
         {
-        case 0: angle_steer_pid.kp += step;           break;
-        case 1: angle_steer_pid.ki += step;           break;
-        case 2: angle_steer_pid.kd += step;           break;
-        case 3: angle_steer_pid.low_pass += step;     break;
-        case 4: angle_speed_pid.kp += step;           break;
-        case 5: angle_speed_pid.kd += step;           break;
-        case 6: speed_l_pid.kp += step;               break;
-        case 7: speed_l_pid.ki += step;               break;
-        case 8: speed_l_pid.kd += step;               break;
-        case 9: speed_l_pid.low_pass += step;         break;
+        case 0: servo_pid.kp += step;                  break;
+        case 1: servo_pid.ki += step;                  break;
+        case 2: servo_pid.kd += step;                  break;
+        case 3: servo_pid.low_pass += step;            break;
+        case 4: servo_pid.kgyro += step;               break;
+        case 5: motor_pid_l.kp += step;                break;
+        case 6: motor_pid_l.ki += step;                break;
+        case 7: motor_pid_l.kd += step;                break;
+        case 8: motor_pid_l.low_pass += step;          break;
         }
         //同步速度环左右参数（保证两轮一致）
-        if (param_cursor >= 6 && param_cursor <= 9)
+        if (param_cursor >= 5 && param_cursor <= 8)
         {
             switch (param_cursor)
             {
-            case 6: speed_r_pid.kp = speed_l_pid.kp; break;
-            case 7: speed_r_pid.ki = speed_l_pid.ki; break;
-            case 8: speed_r_pid.kd = speed_l_pid.kd; break;
-            case 9: speed_r_pid.low_pass = speed_l_pid.low_pass; break;
+            case 5: motor_pid_r.kp = motor_pid_l.kp; break;
+            case 6: motor_pid_r.ki = motor_pid_l.ki; break;
+            case 7: motor_pid_r.kd = motor_pid_l.kd; break;
+            case 8: motor_pid_r.low_pass = motor_pid_l.low_pass; break;
             }
         }
     }
@@ -427,14 +431,14 @@ static void param_apply_delta(int8 sign)
             if (base_speed > 500) base_speed = 500;
             break;
         case 1:
-            angle_steer_pid.out_max += (float)sign * 10.0f;
-            if (angle_steer_pid.out_max < 10.0f) angle_steer_pid.out_max = 10.0f;
-            angle_steer_pid.out_min = -angle_steer_pid.out_max;
+            straight_speed = (int16)((int32)straight_speed + (int32)sign * 10);
+            if (straight_speed <   0) straight_speed =   0;
+            if (straight_speed > 800) straight_speed = 800;
             break;
         case 2:
-            angle_speed_pid.out_max += (float)sign * 5.0f;
-            if (angle_speed_pid.out_max < 5.0f) angle_speed_pid.out_max = 5.0f;
-            angle_speed_pid.out_min = -angle_speed_pid.out_max;
+            long_straight_speed = (int16)((int32)long_straight_speed + (int32)sign * 10);
+            if (long_straight_speed <   0) long_straight_speed =   0;
+            if (long_straight_speed > 900) long_straight_speed = 900;
             break;
         }
     }
@@ -564,9 +568,11 @@ static void tuning_draw_pid(void)
     const uint8 dy = 20;
     uint8 hi;
     const char *name[PID_PARAM_NUM] = {
-        "ags.kp:","ags.ki:","ags.Kd","ags:lp","asp:kp","asp:kd","motL:kp", "motL:ki", "motL:kd", "motL:lp"
+        "srv.kp:","srv.ki:","srv.kd:","srv.lp:","srv.gy:",
+        "mot.kp:","mot.ki:","mot.kd:","mot.lp:"
     };
-    float val[PID_PARAM_NUM] = {angle_steer_pid.kp, angle_steer_pid.ki, angle_steer_pid.kd, angle_steer_pid.low_pass,angle_speed_pid.kp, angle_speed_pid.kd,speed_l_pid.kp, speed_l_pid.ki, speed_l_pid.kd, speed_l_pid.low_pass};
+    float val[PID_PARAM_NUM] = {servo_pid.kp, servo_pid.ki, servo_pid.kd, servo_pid.low_pass, servo_pid.kgyro,
+                                motor_pid_l.kp, motor_pid_l.ki, motor_pid_l.kd, motor_pid_l.low_pass};
     show_red_bold(106, 88, "PID TUNING", RGB565_RED);
     for (hi = 0; hi < PID_PARAM_NUM; hi++)
     {
@@ -577,19 +583,18 @@ static void tuning_draw_pid(void)
             show_red_bold(0, (uint16)(y0 + (uint16)hi * dy), show_buf, RGB565_PURPLE);
     }
 }
-
 static void tuning_draw_speed(void)
 {
-    show_red_bold(106, 88, "SPEED LIMIT", RGB565_RED);
+    show_red_bold(106, 88, "SPEED", RGB565_RED);
 
-    sprintf(show_buf, "base_speed %03d", base_speed);
+    sprintf(show_buf, "base %03d", base_speed);
     if (param_cursor == 0) show_red_bold(0, 108, show_buf, RGB565_GREEN);
     else                   show_red_bold(0, 108, show_buf, RGB565_PURPLE);
-    sprintf(show_buf, "max_gyro  %4.0f", angle_steer_pid.out_max);
+    sprintf(show_buf, "strgt %03d", straight_speed);
     if (param_cursor == 1) show_red_bold(0, 128, show_buf, RGB565_GREEN);
     else                   show_red_bold(0, 128, show_buf, RGB565_PURPLE);
 
-    sprintf(show_buf, "max_dif   %4.0f", angle_speed_pid.out_max);
+    sprintf(show_buf, "long %03d", long_straight_speed);
     if (param_cursor == 2) show_red_bold(0, 148, show_buf, RGB565_GREEN);
     else                   show_red_bold(0, 148, show_buf, RGB565_PURPLE);
 }
@@ -598,4 +603,42 @@ static void tuning_draw_edit(void)
 {
     if (tuning_select == 0) tuning_draw_pid();
     else                    tuning_draw_speed();
+}
+void key4_double_click_start(void)
+{
+    static uint8  key4_first = 0;       // 第一次按下标志
+    static uint32 key4_tick  = 0;       // 第一次按下的时间戳
+    const  uint32 DOUBLE_GAP = 400;     // 双击间隔上限(ms)
+
+    if (key_get_state(KEY_4) == KEY_SHORT_PRESS)
+    {
+        key_clear_state(KEY_4);
+
+        if (key4_first == 0)
+        {
+            key4_first = 1;
+            key4_tick  = system_ms;
+        }
+        else
+        {
+            if (system_ms - key4_tick <= DOUBLE_GAP)
+            {
+                // ===== 双击触发：发车 =====
+                stop_flog = 0;             // 清除出赛道保护标志
+                base_speed = -240;        // 改成你的起步速度
+                key4_first = 0;
+            }
+            else
+            {
+                // 超时，这次当作新的第一次
+                key4_tick = system_ms;
+            }
+        }
+    }
+
+    // 第一次按下后超时未按第二次，复位
+    if (key4_first && (system_ms - key4_tick > DOUBLE_GAP))
+    {
+        key4_first = 0;
+    }
 }

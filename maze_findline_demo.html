@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>迷宫法找线 · 智能车巡线算法可视化</title>
+<style>
+:root {
+  --bg: #1e1e2e;
+  --panel: #252538;
+  --border: #2e2e48;
+  --text: #cdd6f4;
+  --text-dim: #6c7086;
+  --accent: #89b4fa;
+  --accent2: #cba6f7;
+  --red: #f38ba8;
+  --green: #a6e3a1;
+  --orange: #fab387;
+  --cyan: #89dceb;
+  --code-bg: #181825;
+  --code-line: #2a2a40;
+  --code-hl: #3b2a5e;
+  --code-hl-border: #cba6f7;
+  --font-mono: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  --font-display: 'Segoe UI', system-ui, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-display);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* ===== Header ===== */
+.header {
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.header .subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+/* ===== Main Layout ===== */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+/* ===== Canvas Panel ===== */
+.canvas-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  position: relative;
+  min-width: 0;
+}
+.canvas-panel canvas {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #000;
+  image-rendering: pixelated;
+  max-width: 100%;
+  max-height: calc(100vh - 200px);
+}
+/* ===== Status overlay ===== */
+.status-bar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 46, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  display: flex;
+  gap: 24px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+.status-bar .stat { color: var(--text-dim); }
+.status-bar .stat span { color: var(--text); font-weight: 600; }
+.status-bar .stat .green { color: var(--green); }
+.status-bar .stat .red { color: var(--red); }
+.status-bar .stat .orange { color: var(--orange); }
+/* ===== Decision Display ===== */
+.decision-bar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 46, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  backdrop-filter: blur(8px);
+  display: none;
+  align-items: center;
+  gap: 10px;
+}
+.decision-bar .arrow {
+  font-size: 18px;
+}
+.decision-bar .decision-text {
+  color: var(--cyan);
+}
+/* ===== Code Panel ===== */
+.code-panel {
+  width: 460px;
+  min-width: 380px;
+  background: var(--code-bg);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.code-panel .code-header {
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.code-panel .code-header .fn-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+.code-panel .code-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.code-panel .code-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.code-panel .code-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.code-panel .code-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+/* ===== Code Lines ===== */
+.code-line {
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 20px;
+  transition: background 0.15s;
+  border-left: 3px solid transparent;
+}
+.code-line .line-num {
+  width: 44px;
+  text-align: right;
+  padding-right: 12px;
+  color: var(--text-dim);
+  user-select: none;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+.code-line .line-code {
+  flex: 1;
+  white-space: pre;
+  padding-left: 8px;
+  color: var(--text);
+}
+.code-line.highlight {
+  background: var(--code-hl);
+  border-left-color: var(--code-hl-border);
+}
+.code-line.highlight .line-num {
+  color: var(--accent2);
+  opacity: 1;
+}
+/* Syntax highlighting */
+.code-line .kw { color: #cba6f7; }
+.code-line .type { color: #89b4fa; }
+.code-line .fn { color: #fab387; }
+.code-line .num { color: #fab387; }
+.code-line .str { color: #a6e3a1; }
+.code-line .cm { color: #6c7086; font-style: italic; }
+.code-line .pp { color: #f38ba8; } /* preprocessor */
+.code-line .op { color: #89dceb; }
+.code-line .var { color: #f9e2af; }
+/* ===== Controls ===== */
+.controls {
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.controls button {
+  background: rgba(137, 180, 250, 0.1);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.controls button:hover {
+  background: rgba(137, 180, 250, 0.2);
+  border-color: var(--accent);
+}
+.controls button:active { transform: scale(0.97); }
+.controls button.primary {
+  background: var(--accent);
+  color: #1e1e2e;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.controls button.primary:hover {
+  background: #9fc5ff;
+}
+.controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.controls .speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.controls .speed-control label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.controls .speed-control input[type="range"] {
+  width: 80px;
+  accent-color: var(--accent);
+  background: transparent;
+}
+.controls .hand-select {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.controls .hand-select button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 7px 14px;
+}
+.controls .hand-select button.active {
+  background: var(--accent);
+  color: #1e1e2e;
+}
+.controls .hand-select button:first-child {
+  border-right: 1px solid var(--border);
+}
+.controls .phase-label {
+  font-size: 11px;
+  color: var(--orange);
+  font-family: var(--font-mono);
+  margin-left: 4px;
+}
+/* ===== Bottom Info ===== */
+.info-bar {
+  background: rgba(30, 30, 46, 0.95);
+  border-top: 1px solid var(--border);
+  padding: 8px 24px;
+  display: flex;
+  gap: 32px;
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.info-bar .rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.info-bar .rule .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.info-bar .rule .dot.white { background: #fff; }
+.info-bar .rule .dot.red { background: var(--red); }
+.info-bar .rule .dot.green { background: var(--green); }
+.info-bar .rule .dot.cyan { background: var(--cyan); }
+/* ===== Phase indicator ===== */
+.phase-indicator {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.phase-indicator .phase-item {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  background: transparent;
+  transition: all 0.2s;
+}
+.phase-indicator .phase-item.active {
+  background: var(--accent);
+  color: #1e1e2e;
+}
+.phase-indicator .phase-item + .phase-item {
+  border-left: 1px solid var(--border);
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>迷宫法找线 · 跟墙算法可视化</h1>
+    <div class="subtitle">基于 TC264 智能车 findline_lefthand_binary / findline_righthand_binary</div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <div class="phase-indicator" id="phaseIndicator">
+      <div class="phase-item" data-phase="0">① 扫描起点</div>
+      <div class="phase-item" data-phase="1">② 贴墙爬线</div>
+      <div class="phase-item" data-phase="2">③ 完成</div>
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="canvas-panel">
+    <canvas id="mainCanvas" width="752" height="480"></canvas>
+    <div class="decision-bar" id="decisionBar">
+      <span class="arrow" id="decisionArrow">↑</span>
+      <span class="decision-text" id="decisionText">等待开始...</span>
+    </div>
+    <div class="status-bar">
+      <div class="stat">步数 <span id="stepCount">0</span></div>
+      <div class="stat">方向 <span id="dirDisplay">↑</span></div>
+      <div class="stat">位置 <span id="posDisplay">(0, 0)</span></div>
+      <div class="stat">转数 <span class="orange" id="turnCount">0</span></div>
+      <div class="stat">边线 <span id="edgeCount">0</span> 点</div>
+    </div>
+  </div>
+
+  <div class="code-panel">
+    <div class="code-header">
+      <span><span class="fn-name">findline_lefthand_binary</span> (image.c)</span>
+      <span style="font-size:11px;color:var(--text-dim)">行 <span id="currentLine">-</span></span>
+    </div>
+    <div class="code-scroll" id="codeScroll">
+      <div id="codeContainer"></div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="hand-select" id="handSelect">
+    <button class="active" data-hand="left">左手</button>
+    <button data-hand="right">右手</button>
+  </div>
+  <button id="btnReset" title="重置">↺ 重置</button>
+  <button class="primary" id="btnStep">▶ 单步</button>
+  <button id="btnPlay">▶ 播放</button>
+  <button id="btnSkip">⏭ 完成</button>
+  <span class="phase-label" id="phaseLabel">等待启动</span>
+  <div class="speed-control">
+    <label>速度</label>
+    <input type="range" id="speedRange" min="1" max="10" value="5">
+  </div>
+</div>
+
+<div class="info-bar">
+  <div class="rule"><span class="dot white"></span> 白 = 赛道边线</div>
+  <div class="rule"><span style="background:#000;border:1px solid #444;width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;"></span> 黑 = 赛道背景</div>
+  <div class="rule"><span class="dot green"></span> 扫描起点过程</div>
+  <div class="rule"><span class="dot red"></span> 算法路径 (AD)</div>
+  <div class="rule"><span class="dot cyan"></span> 当前位置</div>
+  <div class="rule" style="margin-left:auto;font-family:var(--font-mono);">turn &lt; 4 防死循环</div>
+</div>
+
+<script>
+// ============================================================
+// 配置
+// ============================================================
+const W = 188, H = 120;
+const SCALE = 4;
+const C_W = W * SCALE, C_H = H * SCALE;
+const THRESHOLD = 128;
+
+// ============================================================
+// 方向表 (与 image.c 完全一致)
+// ============================================================
+const edge_dir_front = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+const edge_dir_frontleft = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+const edge_dir_frontright = [[1, -1], [1, 1], [-1, 1], [-1, -1]];
+const DIR_ARROWS = ['↑', '→', '↓', '←'];
+const DIR_NAMES = ['上', '右', '下', '左'];
+
+// ============================================================
+// 赛道生成
+// ============================================================
+function generateTrack() {
+  const binary = new Uint8Array(H * W);
+  // 生成一条弯曲赛道 (白色=255, 黑色=0)
+  // 用贝塞尔曲线绘制一条厚度约12像素的白色赛道
+  
+  // 控制点: 从底部到顶部，S形弯道
+  const pts = [
+    {x: W/2, y: H-5},
+    {x: W/2 - 30, y: H*0.75},
+    {x: W/2 + 35, y: H*0.55},
+    {x: W/2 - 15, y: H*0.35},
+    {x: W/2 + 20, y: H*0.15},
+    {x: W/2, y: 5},
+  ];
+  
+  const trackWidth = 12;
+  const halfW = trackWidth;
+  
+  // 分段绘制
+  for (let seg = 0; seg < pts.length - 1; seg++) {
+    const p0 = pts[seg], p1 = pts[seg + 1];
+    // 中间控制点: 两个控制点
+    const cp1x = p0.x + (p1.x - p0.x) * 0.3 + (seg % 2 === 0 ? -20 : 20);
+    const cp1y = p0.y + (p1.y - p0.y) * 0.3;
+    const cp2x = p0.x + (p1.x - p0.x) * 0.7 + (seg % 2 === 0 ? 20 : -20);
+    const cp2y = p0.y + (p1.y - p0.y) * 0.7;
+    
+    for (let t = 0; t <= 1; t += 0.005) {
+      const u = 1 - t;
+      const x = u*u*u*p0.x + 3*u*u*t*cp1x + 3*u*t*t*cp2x + t*t*t*p1.x;
+      const y = u*u*u*p0.y + 3*u*u*t*cp1y + 3*u*t*t*cp2y + t*t*t*p1.y;
+      const ix = Math.round(x), iy = Math.round(y);
+      // 绘制赛道宽度
+      for (let dy = -halfW; dy <= halfW; dy++) {
+        for (let dx = -halfW; dx <= halfW; dx++) {
+          if (dx*dx + dy*dy < halfW*halfW) {
+            const px = ix + dx, py = iy + dy;
+            if (px >= 0 && px < W && py >= 0 && py < H) {
+              binary[py * W + px] = 255;
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // 添加一些噪声让赛道更真实
+  for (let i = 0; i < H; i++) {
+    // 在某些行添加微小的凹凸
+    const noise = (Math.sin(i * 0.3) * 2 + Math.cos(i * 0.7) * 1.5);
+    // 平滑赛道边缘
+  }
+  
+  return binary;
+}
+
+// ============================================================
+// 算法实现 (与 C 代码完全一致)
+// ============================================================
+function findline_lefthand(binary, startX, startY, maxPoints) {
+  const points = [];
+  let x = startX, y = startY;
+  let dir = 0; // 初始朝上
+  let turn = 0;
+  let step = 0;
+  
+  points.push({x, y, dir, action: 'start'});
+  
+  while (step < maxPoints - 1 && x > 0 && y > 0 && x < W-1 && y < H-1 && turn < 4) {
+    const fx = x + edge_dir_front[dir][0];
+    const fy = y + edge_dir_front[dir][1];
+    const flx = x + edge_dir_frontleft[dir][0];
+    const fly = y + edge_dir_frontleft[dir][1];
+    
+    const frontBlack = binary[fy * W + fx] < THRESHOLD;
+    const frontLeftBlack = binary[fly * W + flx] < THRESHOLD;
+    
+    let action = '';
+    let newDir = dir;
+    let newX = x, newY = y;
+    
+    if (frontBlack) {
+      // 正前方是黑 → 右转，原地不动
+      newDir = (dir + 1) % 4;
+      turn++;
+      action = `正前方黑 → 右转 (dir=${DIR_ARROWS[newDir]})`;
+    } else if (frontLeftBlack) {
+      // 左前是黑 → 直行
+      newX = fx;
+      newY = fy;
+      turn = 0;
+      action = `左前黑 → 直行 (${DIR_ARROWS[dir]})`;
+    } else {
+      // 前方全白 → 走左前并左转
+      newX = flx;
+      newY = fly;
+      newDir = (dir + 3) % 4;
+      turn = 0;
+      action = `全白 → 走左前并左转 (dir=${DIR_ARROWS[newDir]})`;
+    }
+    
+    dir = newDir;
+    x = newX;
+    y = newY;
+    step++;
+    points.push({x, y, dir, action, turn, step, frontBlack, frontLeftBlack});
+    
+    // 边界检查
+    if (x <= 0 || y <= 0 || x >= W-1 || y >= H-1) break;
+  }
+  
+  return points;
+}
+
+function findline_righthand(binary, startX, startY, maxPoints) {
+  const points = [];
+  let x = startX, y = startY;
+  let dir = 0; // 初始朝上
+  let turn = 0;
+  let step = 0;
+  
+  points.push({x, y, dir, action: 'start'});
+  
+  while (step < maxPoints - 1 && x > 0 && y > 0 && x < W-1 && y < H-1 && turn < 4) {
+    const fx = x + edge_dir_front[dir][0];
+    const fy = y + edge_dir_front[dir][1];
+    const frx = x + edge_dir_frontright[dir][0];
+    const fry = y + edge_dir_frontright[dir][1];
+    
+    const frontBlack = binary[fy * W + fx] < THRESHOLD;
+    const frontRightBlack = binary[fry * W + frx] < THRESHOLD;
+    
+    let action = '';
+    let newDir = dir;
+    let newX = x, newY = y;
+    
+    if (frontBlack) {
+      // 正前方是黑 → 左转，原地不动
+      newDir = (dir + 3) % 4;
+      turn++;
+      action = `正前方黑 → 左转 (dir=${DIR_ARROWS[newDir]})`;
+    } else if (frontRightBlack) {
+      // 右前是黑 → 直行
+      newX = fx;
+      newY = fy;
+      turn = 0;
+      action = `右前黑 → 直行 (${DIR_ARROWS[dir]})`;
+    } else {
+      // 前方全白 → 走右前并右转
+      newX = frx;
+      newY = fry;
+      newDir = (dir + 1) % 4;
+      turn = 0;
+      action = `全白 → 走右前并右转 (dir=${DIR_ARROWS[newDir]})`;
+    }
+    
+    dir = newDir;
+    x = newX;
+    y = newY;
+    step++;
+    points.push({x, y, dir, action, turn, step, frontBlack, frontRightBlack});
+    
+    if (x <= 0 || y <= 0 || x >= W-1 || y >= H-1) break;
+  }
+  
+  return points;
+}
+
+// ============================================================
+// 起点搜索
+// ============================================================
+function findStartPoint(binary, hand) {
+  const startY = H - 5;
+  const centerX = Math.floor(W / 2);
+  let startX = centerX;
+  
+  if (hand === 'left') {
+    // 左手：从中心向左搜"白→黑"跳变 → 左边线上沿
+    // 即：当前x是白，x-1是黑  → 找到左边线内侧
+    for (let x = centerX; x > 1; x--) {
+      if (binary[startY * W + (x - 1)] < THRESHOLD && binary[startY * W + x] >= THRESHOLD) {
+        startX = x;
+        break;
+      }
+    }
+  } else {
+    // 右手：从中心向右搜"白→黑"跳变 → 右边线内沿
+    // 即：当前x是白，x+1是黑  → 找到右边线内侧
+    for (let x = centerX; x < W - 1; x++) {
+      if (binary[startY * W + x] >= THRESHOLD && binary[startY * W + (x + 1)] < THRESHOLD) {
+        startX = x;
+        break;
+      }
+    }
+  }
+  
+  // 如果没找到有效起点，尝试从中心往右搜第一个白点
+  if (startX === centerX && hand === 'right') {
+    for (let x = centerX; x < W; x++) {
+      if (binary[startY * W + x] >= THRESHOLD) {
+        startX = x;
+        break;
+      }
+    }
+  }
+  
+  return {x: startX, y: startY};
+}
+
+// ============================================================
+// C 代码行 (用于代码面板)
+// ============================================================
+const C_CODE_LINES = [
+  {t: 'cm', c: '// 左手跟墙法 findline_lefthand_binary'},
+  {t: 'cm', c: '// 从起点沿白边线追踪，左手法则'},
+  {t: '', c: ''},
+  {t: 'kw', c: 'void'} , {t: 'fn', c: ' findline_lefthand_binary'}, {t: '', c: '('},
+  {t: 'kw', c: 'const uint8'} , {t: 'var', c: ' binary'}, {t: '', c: '[MT9V03X_H][MT9V03X_W],'},
+  {t: '', c: '    '}, {t: 'type', c: 'int16'} , {t: 'var', c: ' start_x'}, {t: '', c: ','},
+  {t: 'type', c: 'int16'} , {t: 'var', c: ' start_y'}, {t: '', c: ','},
+  {t: 'type', c: 'int16'} , {t: 'var', c: ' points'}, {t: '', c: '[][2],'},
+  {t: '', c: '    '}, {t: 'type', c: 'uint16'} , {t: '', c: ' *'}, {t: 'var', c: 'point_count'},
+  {t: '', c: ')'},
+  {t: '', c: '{'},
+  {t: 'cm', c: '    // 1. 参数校验'},
+  {t: '', c: '    '}, {t: 'kw', c: 'if'} , {t: '', c: ' (binary == 0 || points == 0 || point_count == 0)'},
+  {t: '', c: '        '}, {t: 'kw', c: 'return'} , {t: '', c: ';'},
+  {t: '', c: ''},
+  {t: 'cm', c: '    // 2. 初始化'},
+  {t: '', c: '    '}, {t: 'var', c: 'x'} , {t: '', c: ' = '}, {t: 'var', c: 'start_x'}, {t: '', c: ';'},
+  {t: '', c: '    '}, {t: 'var', c: 'y'} , {t: '', c: ' = '}, {t: 'var', c: 'start_y'}, {t: '', c: ';'},
+  {t: '', c: '    '}, {t: 'var', c: 'dir'} , {t: '', c: ' = 0;'}, {t: 'cm', c: ' // 初始朝上'},
+  {t: '', c: '    '}, {t: 'var', c: 'turn'} , {t: '', c: ' = 0;'},
+  {t: '', c: '    '}, {t: 'var', c: 'step'} , {t: '', c: ' = 0;'},
+  {t: '', c: ''},
+  {t: 'cm', c: '    // 3. 记录起点'},
+  {t: '', c: '    points[0][0] = '}, {t: 'var', c: 'x'}, {t: '', c: ';'},
+  {t: '', c: '    points[0][1] = '}, {t: 'var', c: 'y'}, {t: '', c: ';'},
+  {t: '', c: ''},
+  {t: 'cm', c: '    // 4. 主循环：贴墙爬行'},
+  {t: '', c: '    '}, {t: 'kw', c: 'while'} , {t: '', c: ' (step < max_points - 1 &&'},
+  {t: '', c: '           x > 0 && y > 0 && x < MT9V03X_W-1 && y < MT9V03X_H-1 &&'},
+  {t: '', c: '           turn < 4)'},
+  {t: '', c: '    {'},
+  {t: '', c: '        '}, {t: 'cm', c: '// 计算前方和左前方坐标'},
+  {t: '', c: '        fx  = x + edge_dir_front[dir][0];'},
+  {t: '', c: '        fy  = y + edge_dir_front[dir][1];'},
+  {t: '', c: '        flx = x + edge_dir_frontleft[dir][0];'},
+  {t: '', c: '        fly = y + edge_dir_frontleft[dir][1];'},
+  {t: '', c: ''},
+  {t: '', c: '        '}, {t: 'kw', c: 'if'} , {t: '', c: ' (binary[fy][fx] < EDGE_WHITE_THRESHOLD)'},
+  {t: 'cm', c: '  // 正前方黑'},
+  {t: '', c: '        {'},
+  {t: '', c: '            dir = (dir + 1) % 4;'}, {t: 'cm', c: '  // 右转'},
+  {t: '', c: '            turn++;'},
+  {t: '', c: '        }'},
+  {t: '', c: '        '}, {t: 'kw', c: 'else if'} , {t: '', c: ' (binary[fly][flx] < EDGE_WHITE_THRESHOLD)'},
+  {t: 'cm', c: '  // 左前黑'},
+  {t: '', c: '        {'},
+  {t: '', c: '            x = fx; y = fy;'}, {t: 'cm', c: '  // 直行'},
+  {t: '', c: '            turn = 0;'},
+  {t: '', c: '        }'},
+  {t: '', c: '        '}, {t: 'kw', c: 'else'} , {t: '', c: '  '}, {t: 'cm', c: '  // 前方全白'},
+  {t: '', c: '        {'},
+  {t: '', c: '            x = flx; y = fly;'}, {t: 'cm', c: '  // 走左前'},
+  {t: '', c: '            dir = (dir + 3) % 4;'}, {t: 'cm', c: '  // 左转'},
+  {t: '', c: '            turn = 0;'},
+  {t: '', c: '        }'},
+  {t: '', c: ''},
+  {t: '', c: '        step++;'},
+  {t: '', c: '        points[step][0] = x;'},
+  {t: '', c: '        points[step][1] = y;'},
+  {t: '', c: '    }'},
+  {t: '', c: '    *point_count = step + 1;'},
+  {t: '', c: '}'},
+];
+
+// 代码行号映射: 每行对应的算法步骤索引
+// 主循环体: 行40-64 (0-indexed in our array)
+const CODE_FRONT_CHECK = 44;  // if (binary[fy][fx] < THRESHOLD)
+const CODE_TURN_RIGHT = 46;   // dir = (dir+1)%4
+const CODE_FRONTLEFT_CHECK = 49; // else if (binary[fly][flx] < THRESHOLD)
+const CODE_GO_STRAIGHT = 51;  // x = fx; y = fy
+const CODE_GO_LEFTFRONT = 55; // x = flx; y = fly
+const CODE_TURN_LEFT = 56;    // dir = (dir+3)%4
+const CODE_RECORD = 60;       // step++
+
+// ============================================================
+// 主渲染
+// ============================================================
+const canvas = document.getElementById('mainCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = C_W;
+canvas.height = C_H;
+
+let binary = new Uint8Array(H * W);
+let points = [];
+let allPoints = [];
+let scanFrames = [];
+let currentStep = -1;
+let isPlaying = false;
+let playTimer = null;
+let hand = 'left';
+let phase = 0; // 0=scanning, 1=walking, 2=done
+let scanAnimFrame = 0;
+
+// ============================================================
+// 代码生成
+// ============================================================
+function buildCodeHTML() {
+  const container = document.getElementById('codeContainer');
+  container.innerHTML = '';
+  C_CODE_LINES.forEach((line, idx) => {
+    const div = document.createElement('div');
+    div.className = 'code-line';
+    div.dataset.line = idx;
+    
+    const numSpan = document.createElement('span');
+    numSpan.className = 'line-num';
+    numSpan.textContent = idx + 1;
+    div.appendChild(numSpan);
+    
+    const codeSpan = document.createElement('span');
+    codeSpan.className = 'line-code';
+    
+    if (line.t === '') {
+      codeSpan.textContent = line.c;
+    } else {
+      codeSpan.innerHTML = `<span class="${line.t}">${escapeHtml(line.c)}</span>`;
+    }
+    
+    div.appendChild(codeSpan);
+    container.appendChild(div);
+  });
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function highlightCodeLine(lineNum) {
+  document.querySelectorAll('.code-line').forEach(el => el.classList.remove('highlight'));
+  document.getElementById('currentLine').textContent = lineNum + 1;
+  const el = document.querySelector(`.code-line[data-line="${lineNum}"]`);
+  if (el) {
+    el.classList.add('highlight');
+    el.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+  }
+}
+
+// ============================================================
+// 渲染
+// ============================================================
+function renderFrame(stepIdx) {
+  ctx.clearRect(0, 0, C_W, C_H);
+  
+  // 绘制二值图像
+  const imageData = ctx.createImageData(C_W, C_H);
+  for (let y = 0; y < C_H; y++) {
+    for (let x = 0; x < C_W; x++) {
+      const bi = Math.floor(y / SCALE) * W + Math.floor(x / SCALE);
+      const v = binary[bi];
+      const idx = (y * C_W + x) * 4;
+      if (v >= THRESHOLD) {
+        imageData.data[idx] = 240;
+        imageData.data[idx+1] = 235;
+        imageData.data[idx+2] = 230;
+        imageData.data[idx+3] = 255;
+      } else {
+        imageData.data[idx] = 15;
+        imageData.data[idx+1] = 15;
+        imageData.data[idx+2] = 20;
+        imageData.data[idx+3] = 255;
+      }
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+  
+  if (phase === 0) {
+    // 扫描起点阶段
+    renderScanPhase();
+    return;
+  }
+  
+  // 绘制路径
+  if (allPoints.length > 0) {
+    // 绘制走过的路径 (红色)
+    const endIdx = stepIdx >= 0 ? Math.min(stepIdx + 1, allPoints.length) : allPoints.length;
+    
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(243, 139, 168, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    for (let i = 0; i < endIdx; i++) {
+      const px = allPoints[i].x * SCALE + SCALE/2;
+      const py = allPoints[i].y * SCALE + SCALE/2;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    
+    // 路径点 (小圆点)
+    for (let i = 0; i < endIdx; i++) {
+      const px = allPoints[i].x * SCALE + SCALE/2;
+      const py = allPoints[i].y * SCALE + SCALE/2;
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(243, 139, 168, 0.5)';
+      ctx.fill();
+    }
+    
+    // 当前位置 (高亮)
+    if (endIdx > 0 && endIdx <= allPoints.length) {
+      const cp = allPoints[endIdx - 1];
+      const cx = cp.x * SCALE + SCALE/2;
+      const cy = cp.y * SCALE + SCALE/2;
+      
+      // 外圈光晕
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 12);
+      grad.addColorStop(0, 'rgba(137, 220, 235, 0.8)');
+      grad.addColorStop(1, 'rgba(137, 220, 235, 0)');
+      ctx.beginPath();
+      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      
+      // 中心点
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#89dceb';
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      
+      // 方向箭头
+      const arrowLen = 14;
+      const dx = edge_dir_front[cp.dir][0] * arrowLen;
+      const dy = edge_dir_front[cp.dir][1] * arrowLen;
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * 0.3, cy + dy * 0.3);
+      ctx.lineTo(cx + dx, cy + dy);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+}
+
+function renderScanPhase() {
+  if (scanFrames.length === 0) return;
+  
+  const frame = scanFrames[Math.min(scanAnimFrame, scanFrames.length - 1)];
+  
+  // 绘制扫描轨迹
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(166, 227, 161, 0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([3, 3]);
+  ctx.moveTo(frame.startX * SCALE, frame.startY * SCALE);
+  ctx.lineTo(frame.currentX * SCALE, frame.currentY * SCALE);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // 扫描点
+  if (frame.scanning) {
+    const sx = frame.currentX * SCALE + SCALE/2;
+    const sy = frame.currentY * SCALE + SCALE/2;
+    
+    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, 10);
+    grad.addColorStop(0, 'rgba(166, 227, 161, 0.9)');
+    grad.addColorStop(1, 'rgba(166, 227, 161, 0)');
+    ctx.beginPath();
+    ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#a6e3a1';
+    ctx.fill();
+  }
+  
+  // 找到起点
+  if (frame.found) {
+    const fx = frame.foundX * SCALE + SCALE/2;
+    const fy = frame.foundY * SCALE + SCALE/2;
+    
+    ctx.beginPath();
+    ctx.arc(fx, fy, 6, 0, Math.PI * 2);
+    ctx.strokeStyle = '#a6e3a1';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    ctx.beginPath();
+    ctx.arc(fx, fy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#a6e3a1';
+    ctx.fill();
+    
+    // 标注
+    ctx.fillStyle = '#a6e3a1';
+    ctx.font = '11px monospace';
+    ctx.fillText('起点', fx + 8, fy - 4);
+  }
+}
+
+// ============================================================
+// 扫描动画帧生成
+// ============================================================
+function generateScanFrames() {
+  scanFrames = [];
+  const startY = H - 5;
+  const centerX = Math.floor(W / 2);
+  
+  if (hand === 'left') {
+    // 左手：从中心向左扫描，找"白→黑"跳变
+    for (let x = centerX; x > 1; x--) {
+      const isWhite = binary[startY * W + x] >= THRESHOLD;
+      const found = binary[startY * W + (x - 1)] < THRESHOLD && isWhite;
+      scanFrames.push({
+        startX: centerX, startY,
+        currentX: x, currentY: startY,
+        scanning: !found,
+        found: found,
+        foundX: found ? x : -1,
+        foundY: startY,
+      });
+      if (found) break;
+    }
+  } else {
+    // 右手：从中心向右扫描，找"白→黑"跳变（白变黑=右边线）
+    for (let x = centerX; x < W - 1; x++) {
+      const isWhite = binary[startY * W + x] >= THRESHOLD;
+      const found = isWhite && binary[startY * W + (x + 1)] < THRESHOLD;
+      scanFrames.push({
+        startX: centerX, startY,
+        currentX: x, currentY: startY,
+        scanning: !found,
+        found: found,
+        foundX: found ? x : -1,
+        foundY: startY,
+      });
+      if (found) break;
+    }
+    // 如果没找到，尝试找第一个白点
+    if (scanFrames.length === 0 || !scanFrames.some(f => f.found)) {
+      for (let x = centerX; x < W; x++) {
+        if (binary[startY * W + x] >= THRESHOLD) {
+          scanFrames.push({
+            startX: centerX, startY,
+            currentX: x, currentY: startY,
+            scanning: false,
+            found: true,
+            foundX: x,
+            foundY: startY,
+          });
+          break;
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// 控制
+// ============================================================
+function init(handType) {
+  hand = handType || hand;
+  stopPlay();
+  phase = 0;
+  currentStep = -1;
+  scanAnimFrame = 0;
+  
+  // 生成赛道
+  binary = generateTrack();
+  
+  // 生成扫描帧
+  generateScanFrames();
+  
+  // 计算起点并运行算法
+  const start = findStartPoint(binary, hand);
+  const maxPoints = 200;
+  
+  if (hand === 'left') {
+    allPoints = findline_lefthand(binary, start.x, start.y, maxPoints);
+  } else {
+    allPoints = findline_righthand(binary, start.x, start.y, maxPoints);
+  }
+  
+  updateUI();
+  renderFrame(-1);
+  updatePhaseUI();
+  highlightCodeLine(0);
+  updateStatus(-1);
+  
+  document.getElementById('decisionBar').style.display = 'none';
+  document.getElementById('phaseLabel').textContent = '扫描起点...';
+  document.getElementById('btnPlay').textContent = '▶ 播放';
+  
+  // 自动播放扫描动画
+  startScanAnimation();
+}
+
+function startScanAnimation() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  const speed = parseInt(document.getElementById('speedRange').value);
+  const interval = Math.max(30, 200 - speed * 15);
+  
+  playTimer = setInterval(() => {
+    scanAnimFrame++;
+    if (scanAnimFrame >= scanFrames.length) {
+      clearInterval(playTimer);
+      playTimer = null;
+      // 扫描完成，进入步行阶段
+      phase = 1;
+      currentStep = -1;
+      document.getElementById('phaseLabel').textContent = '贴墙爬线中...';
+      updatePhaseUI();
+      renderFrame(-1);
+      updateStatus(-1);
+      return;
+    }
+    renderFrame(-1);
+    updateStatus(-1);
+  }, interval);
+}
+
+function stopPlay() {
+  if (playTimer) {
+    clearInterval(playTimer);
+    playTimer = null;
+  }
+  isPlaying = false;
+}
+
+function stepForward() {
+  if (phase === 0) {
+    // 扫描阶段
+    if (scanAnimFrame < scanFrames.length - 1) {
+      scanAnimFrame++;
+      renderFrame(-1);
+      updateStatus(-1);
+      return;
+    } else {
+      phase = 1;
+      currentStep = -1;
+      document.getElementById('phaseLabel').textContent = '贴墙爬线中...';
+      updatePhaseUI();
+      renderFrame(-1);
+      updateStatus(-1);
+      return;
+    }
+  }
+  
+  if (phase === 1) {
+    currentStep++;
+    if (currentStep >= allPoints.length) {
+      phase = 2;
+      document.getElementById('phaseLabel').textContent = '✅ 完成！';
+      updatePhaseUI();
+      document.getElementById('decisionBar').style.display = 'none';
+      renderFrame(allPoints.length - 1);
+      updateStatus(allPoints.length - 1);
+      return;
+    }
+    renderFrame(currentStep);
+    updateStatus(currentStep);
+    highlightCodeForStep(currentStep);
+    updateDecisionBar(currentStep);
+    updatePhaseUI();
+  }
+}
+
+function togglePlay() {
+  if (phase === 2) {
+    // 重置后再播放
+    init(hand);
+    setTimeout(() => togglePlay(), 100);
+    return;
+  }
+  
+  if (phase === 0) {
+    // 扫描阶段播放
+    if (playTimer) {
+      stopPlay();
+      document.getElementById('btnPlay').textContent = '▶ 播放';
+      return;
+    }
+    document.getElementById('btnPlay').textContent = '⏸ 暂停';
+    startScanAnimation();
+    return;
+  }
+  
+  if (isPlaying) {
+    stopPlay();
+    document.getElementById('btnPlay').textContent = '▶ 播放';
+    return;
+  }
+  
+  isPlaying = true;
+  document.getElementById('btnPlay').textContent = '⏸ 暂停';
+  
+  const speed = parseInt(document.getElementById('speedRange').value);
+  const interval = Math.max(30, 200 - speed * 15);
+  
+  playTimer = setInterval(() => {
+    stepForward();
+    if (phase === 2) {
+      stopPlay();
+      document.getElementById('btnPlay').textContent = '▶ 播放';
+    }
+  }, interval);
+}
+
+function skipToEnd() {
+  stopPlay();
+  if (phase === 0) {
+    // 跳过扫描
+    scanAnimFrame = scanFrames.length - 1;
+    phase = 1;
+    currentStep = -1;
+    document.getElementById('phaseLabel').textContent = '贴墙爬线中...';
+    updatePhaseUI();
+    // 跳过爬线
+    setTimeout(() => skipToEnd(), 50);
+    return;
+  }
+  phase = 2;
+  currentStep = allPoints.length - 1;
+  renderFrame(allPoints.length - 1);
+  updateStatus(allPoints.length - 1);
+  highlightCodeLine(C_CODE_LINES.length - 1);
+  document.getElementById('phaseLabel').textContent = '✅ 完成！';
+  document.getElementById('decisionBar').style.display = 'none';
+  updatePhaseUI();
+  document.getElementById('btnPlay').textContent = '▶ 播放';
+}
+
+function updateStatus(stepIdx) {
+  document.getElementById('stepCount').textContent = stepIdx >= 0 ? allPoints[stepIdx].step : 0;
+  document.getElementById('turnCount').textContent = stepIdx >= 0 ? allPoints[stepIdx].turn : 0;
+  document.getElementById('edgeCount').textContent = allPoints.length;
+  
+  if (stepIdx >= 0 && stepIdx < allPoints.length) {
+    const p = allPoints[stepIdx];
+    document.getElementById('dirDisplay').textContent = DIR_ARROWS[p.dir];
+    document.getElementById('posDisplay').textContent = `(${p.x}, ${p.y})`;
+  } else {
+    document.getElementById('dirDisplay').textContent = '↑';
+    document.getElementById('posDisplay').textContent = '(-, -)';
+  }
+}
+
+function updateDecisionBar(stepIdx) {
+  const bar = document.getElementById('decisionBar');
+  if (stepIdx < 0 || stepIdx >= allPoints.length || !allPoints[stepIdx].action) {
+    bar.style.display = 'none';
+    return;
+  }
+  const p = allPoints[stepIdx];
+  bar.style.display = 'flex';
+  document.getElementById('decisionArrow').textContent = DIR_ARROWS[p.dir];
+  document.getElementById('decisionText').textContent = p.action;
+}
+
+function highlightCodeForStep(stepIdx) {
+  if (stepIdx < 0 || stepIdx >= allPoints.length) return;
+  const p = allPoints[stepIdx];
+  if (!p.action || p.action === 'start') {
+    highlightCodeLine(22); // 记录起点
+    return;
+  }
+  
+  if (p.action.includes('正前方黑')) {
+    highlightCodeLine(44); // if (front black)
+    setTimeout(() => highlightCodeLine(46), 50); // turn right
+  } else if (p.action.includes('左前黑') || p.action.includes('右前黑')) {
+    highlightCodeLine(49); // else if (frontleft black)
+    setTimeout(() => highlightCodeLine(51), 50); // go straight
+  } else if (p.action.includes('全白')) {
+    highlightCodeLine(54); // else (all white)
+    setTimeout(() => highlightCodeLine(55), 50); // go front-left
+    setTimeout(() => highlightCodeLine(56), 100); // turn left
+  } else {
+    highlightCodeLine(60); // step++
+  }
+}
+
+function updatePhaseUI() {
+  document.querySelectorAll('.phase-item').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.phase) === phase);
+  });
+}
+
+function updateUI() {
+  document.getElementById('handSelect').querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b.dataset.hand === hand);
+  });
+}
+
+// ============================================================
+// 事件绑定
+// ============================================================
+document.getElementById('btnReset').addEventListener('click', () => init(hand));
+document.getElementById('btnStep').addEventListener('click', stepForward);
+document.getElementById('btnPlay').addEventListener('click', togglePlay);
+document.getElementById('btnSkip').addEventListener('click', skipToEnd);
+
+document.getElementById('speedRange').addEventListener('input', () => {
+  if (isPlaying) {
+    stopPlay();
+    document.getElementById('btnPlay').textContent = '▶ 播放';
+  }
+});
+
+document.getElementById('handSelect').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const newHand = btn.dataset.hand;
+  if (newHand === hand) return;
+  hand = newHand;
+  updateUI();
+  stopPlay();
+  init(hand);
+});
+
+// ============================================================
+// 启动
+// ============================================================
+buildCodeHTML();
+init('left');
+</script>
+</body>
+</html>

@@ -8,5 +8,6 @@
 void my_wifi_spi_init(void);
 void wifi_image_send(void);
 void wifi_debug(void);
+void wifi_debug_data(void);
 int Sin(void);
 #endif

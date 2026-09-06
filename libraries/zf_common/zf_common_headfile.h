@@ -121,11 +121,13 @@
 //=====================================================�û���======================================================
 #include "display.h"
 #include "image.h"
+#include "camera_param.h"
 #include "wifi_spi.h"
 #include "init.h"
 #include "data.h"
 #include "lvgl_demo.h"
 #include "motor.h"
+#include "servo.h"
 #include "pid.h"
 #include "imu.h"
 //=====================================================�û���======================================================

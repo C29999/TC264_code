@@ -42,7 +42,7 @@ void my_wifi_spi_init(void)
         show_center("WIFI SPI Success");
         system_delay_ms(500);
     }
-    if (wifi_spi_wifi_connect("chun", "12345678") == 0)
+    if (wifi_spi_wifi_connect("JCDBK", "12345678") == 0)
         {
             show_center("WIFI Connected Success");
             system_delay_ms(500); 
@@ -54,7 +54,7 @@ void my_wifi_spi_init(void)
             return;
         }
     system_delay_ms(200);
-    if (wifi_spi_socket_connect("TCP", "192.168.243.248", "8080", "6060") != 0)
+    if (wifi_spi_socket_connect("TCP", "192.168.103.248", "8080", "6060") != 0)
     {
         show_center("TCP Connecting fail");
         system_delay_ms(500);
@@ -110,8 +110,18 @@ void wifi_boundary_send(void)
         seekfree_assistant_camera_boundary_send(&boundary_r_obj);
     }
 }
+void wifi_debug_data(void)
+{
+    if (!wifi_send_ready) return;
+    char buf[128];
+    sprintf(buf, "pure:%6.1f mid:%4d ang:%6.1f encL:%5d encR:%5d spd:%4d\r\n",
+            (double)pure_angle, mid, (double)angle,
+            encoder_left, encoder_right, base_speed);
+    wifi_spi_send_string(buf);
+}
+
 void wifi_debug(void)
 {
- //  wifi_image_send();
-    wifi_boundary_send();
+    wifi_image_send();
+    //wifi_boundary_send();
 }

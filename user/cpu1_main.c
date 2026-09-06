@@ -50,21 +50,23 @@ void core1_main(void)
     system_1_init();
     cpu_wait_event_ready();
     ips200_clear();
-    show_boot_ani();               
+    show_boot_ani();
+    camera_param_init();            // 初始化逆透视查找表（占位恒等表，标定后换真表）
     while (TRUE)
     {
         key_scanner();
         display_draw();
         if (mt9v03x_finish_flag)
         {
-            
+
             wifi_debug();
             mt9v03x_finish_flag=0;
             fps_count++;
-            image_threshold_block(mt9v03x_image); 
-            find_edges_binary();
-            process_edge_points();
-            calculation_error();
+            anti_perspective_fast();        // 1.原图→鸟瞰图（查表逆透视）
+            image_threshold(img_pers_data); // 2.鸟瞰图二值化（供显示+起点阈值）
+            find_edges_pers();              // 3.鸟瞰图自适应巡线
+            process_edge_points();          // 4.点云流水线（鸟瞰像素→米）
+            calculation_error();            // 5.中线偏差
         }
     }
 }

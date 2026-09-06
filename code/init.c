@@ -1,4 +1,5 @@
 #include "init.h"
+#include "servo.h"
 
 /* mt9v03x 摄像头驱动导出的全局状态 */
 extern uint8 mt9v03x_init(void);          /* 返回 0=成功 1=失败 */
@@ -12,11 +13,12 @@ void system_0_init(void)
     system_delay_ms(300);
     data_init();
     encoder_init();
+    servo_init();   // 舵机初始化（记得文件里 #include "servo.h"）
     motor_init();
-    pit_ms_init(CCU60_CH0, 10);         // 10ms 定时器，用于按键扫描
+    pit_ms_init(CCU60_CH0, 5);          // 5ms 定时器：IMU采集 + 按键扫描节拍
     pit_ms_init(CCU60_CH1, 1000);       // 1s 定时器，用于帧率计算
-    pit_ms_init(CCU61_CH0, 2);
-    pit_ms_init(CCU61_CH1, 10);
+    pit_ms_init(CCU61_CH0, 5);          // 5ms 定时器：方向环（舵机），加快响应
+    pit_ms_init(CCU61_CH1, 10);         // 10ms 定时器：编码器 + 速度环
 }
 void system_1_init(void)
 {

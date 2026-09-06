@@ -6,7 +6,32 @@
 
 // 半赛道宽：车居中时110行处(右线x-左线x)的一半
 // 校准：挡住右线,车摆正,看屏幕mid显示M,改成(188-M)
-#define TRACK_HALF_W  (94)
+// 占位恒等表阶段沿用透视校准值94；标定换真鸟瞰表后必须改为(0.225f*pixel_per_meter)
+#define TRACK_HALF_W  (16)
+
+/* ================ 鸟瞰图（逆透视） ================ */
+#define PERS_W  MT9V03X_W    // 鸟瞰图宽 188，与屏幕窗口/原图同构
+#define PERS_H  MT9V03X_H    // 鸟瞰图高 120
+
+// 轻量图像描述符（与国一 image_t 一致，方便逐行移植国一函数）
+typedef struct image
+{
+    uint8 *data;
+    int16 width;
+    int16 height;
+    int16 step;
+} image_t;
+#define AT_IMAGE(img, x, y) ((img)->data[(y) * (img)->step + (x)])
+
+#define PERS_BLOCK_SIZE  (7)            // 局部自适应
+#define PERS_CLIP_VALUE  (4)            // 局部均值下探量
+#define PERS_BEGIN_Y     (PERS_H - 12)  // 巡线起始行(近端)
+#define PERS_BEGIN_X     (8)           // 起点距画面中心的横向偏移
+
+extern uint8 img_pers_data[PERS_H][PERS_W];     // 鸟瞰灰度图（逆透视输出）
+extern int16 touch_boundary0;   // 左巡线碰到图像边界（十字/环岛判据）
+extern int16 touch_boundary1;   // 右巡线碰到图像边界
+
 extern uint8 image_binary[MT9V03X_H][MT9V03X_W];
 extern int16 left_line_points[IPTS_MAX][2];
 extern int16 right_line_points[IPTS_MAX][2];
@@ -16,9 +41,10 @@ static uint8 otsu_local_threshold(const uint8 image[MT9V03X_H][MT9V03X_W],uint16
 void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W]);
 void image_threshold_block(const uint8 image[MT9V03X_H][MT9V03X_W]);
 void image_display_otsu_thresholds(void);
-void findline_lefthand_binary(const uint8 binary[MT9V03X_H][MT9V03X_W], int16 start_x, int16 start_y, int16 points[][2], uint16 *point_count);
-void findline_righthand_binary(const uint8 binary[MT9V03X_H][MT9V03X_W], int16 start_x, int16 start_y, int16 points[][2], uint16 *point_count);
-void find_edges_binary(void);
+void anti_perspective_fast(void);
+void findline_lefthand_adaptive(image_t *img, int16 block_size, int16 clip_value, int16 x, int16 y, int16 pts[][2], int16 *num);
+void findline_righthand_adaptive(image_t *img, int16 block_size, int16 clip_value, int16 x, int16 y, int16 pts[][2], int16 *num);
+void find_edges_pers(void);
 void calculation_error(void);
 void track_protection(void);
 
@@ -79,7 +105,4 @@ void  find_corners(void);//查找角点
 void  find_far_corners(void);//查找远端角点
 void  find_farline_l(void);//查找远端左边界
 void  find_farline_r(void);//查找远端右边界
-
-
-
 #endif

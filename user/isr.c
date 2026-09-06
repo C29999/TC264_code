@@ -1,16 +1,16 @@
 /*********************************************************************************************************************
 * TC264 Opensourec Library ����TC264 ��Դ�⣩��һ�����ڹٷ� SDK �ӿڵĵ�������Դ��
-* Copyright (c) 2022 SEEKFREE ��ɿƼ�??
+* Copyright (c) 2022 SEEKFREE ��ɿƼ�??
 *
-* ���ļ��� TC264 ��Դ���һ����??
+* ���ļ��� TC264 ��Դ���һ����??
 *
-* TC264 ��Դ�� ���������??
-* �����Ը����������������??���� GPL��GNU General Public License���� GNUͨ�ù�������֤��������
-* �� GPL �ĵ�3�棨�� GPL3.0������ѡ��ģ��κκ����İ汾�����·�����??/���޸���
+* TC264 ��Դ�� ���������??
+* �����Ը����������������??���� GPL��GNU General Public License���� GNUͨ�ù�������֤��������
+* �� GPL �ĵ�3�棨�� GPL3.0������ѡ��ģ��κκ����İ汾�����·�����??/���޸���
 *
 * ����Դ��ķ�����ϣ�����ܷ������ã�����δ�������κεı��?
 * ����û�������������Ի��ʺ��ض���;�ı�֤
-* ����ϸ����μ�?? GPL
+* ����ϸ����μ�?? GPL
 *
 * ��Ӧ�����յ�����Դ����?ʱ�յ�һ�� GPL �ĸ���
 * ���û�У������<https://www.gnu.org/licenses/>
@@ -36,6 +36,8 @@
 #include "isr_config.h"
 #include "isr.h"
 
+volatile uint32 system_ms = 0;   // 全局毫秒计数器，5ms中断累加
+
 // TCϵ����TCϵ��Ĭ���ǲ�֧���ж�Ƕ�׵ģ�ϣ��֧���ж�Ƕ����Ҫ���ж���ʹ�� interrupt_global_enable(0); �������ж�Ƕ��
 // �򵥵�˵ʵ���Ͻ����жϺ�TCϵ�е�Ӳ���Զ������� interrupt_global_disable(); ���ܾ���Ӧ�κε��жϣ�������?�����Լ��ֶ����� interrupt_global_enable(0); �������жϵ���Ӧ��
 
@@ -44,9 +46,9 @@ IFX_INTERRUPT(cc60_pit_ch0_isr, 0, CCU6_0_CH0_ISR_PRIORITY)
 {
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU60_CH0);
-    encoder_update();
-    speed_control();
-    track_protection();
+    system_ms += 5;
+    imu_update();
+    key_scanner();
 }
 IFX_INTERRUPT(cc60_pit_ch1_isr, 0, CCU6_0_CH1_ISR_PRIORITY)
 {
@@ -60,13 +62,17 @@ IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
 {
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH0);
-    imu_update();  
+    angle = quadradic_pid_solve(&servo_pid, pure_angle);
+    servo_set(angle);
 }
 
 IFX_INTERRUPT(cc61_pit_ch1_isr, 0, CCU6_1_CH1_ISR_PRIORITY)
 {
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH1);
+    encoder_update();
+    speed_control();
+    track_protection();   // 出赛道保护
 
 
 
@@ -116,7 +122,7 @@ IFX_INTERRUPT(exti_ch1_ch5_isr, 0, EXTI_CH1_CH5_INT_PRIO)
     }
 }
 
-// ��������ͷpclk����Ĭ��ռ���� 2ͨ�������ڴ���DMA��������ﲻ�ٶ����жϺ���??
+// ��������ͷpclk����Ĭ��ռ���� 2ͨ�������ڴ���DMA��������ﲻ�ٶ����жϺ���??
 // IFX_INTERRUPT(exti_ch2_ch6_isr, 0, EXTI_CH2_CH6_INT_PRIO)
 // {
 //  interrupt_global_enable(0);                     // �����ж�Ƕ��
@@ -153,7 +159,7 @@ IFX_INTERRUPT(exti_ch3_ch7_isr, 0, EXTI_CH3_CH7_INT_PRIO)
 IFX_INTERRUPT(dma_ch5_isr, 0, DMA_INT_PRIO)
 {
     interrupt_global_enable(0);                     // �����ж�Ƕ��
-    camera_dma_handler();                           // ����ͷ�ɼ����ͳһ�ص�����??
+    camera_dma_handler();                           // ����ͷ�ɼ����ͳһ�ص�����??
 }
 // **************************** DMA�жϺ��� ****************************
 
@@ -171,9 +177,9 @@ IFX_INTERRUPT(uart0_rx_isr, 0, UART0_RX_INT_PRIO)
 {
     interrupt_global_enable(0);                     // �����ж�Ƕ��
 
-#if DEBUG_UART_USE_INTERRUPT                        // �������?? debug �����ж�
+#if DEBUG_UART_USE_INTERRUPT                        // �������?? debug �����ж�
         debug_interrupr_handler();                  // ���� debug ���ڽ��մ������� ���ݻᱻ debug ���λ�������ȡ
-#endif                                              // ����޸���?? DEBUG_UART_INDEX ����δ������?�ŵ���Ӧ�Ĵ����ж�ȥ
+#endif                                              // ����޸���?? DEBUG_UART_INDEX ����δ������?�ŵ���Ӧ�Ĵ����ж�ȥ
 }
 
 

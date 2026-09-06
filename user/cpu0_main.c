@@ -36,6 +36,7 @@
 
 #include "wifi_spi.h"
 #include "image.h"
+#include "display.h"
 
 #pragma section all "cpu0_dsram"
 // 本文件内（#pragma section all restore）之间的所有变量将被分配到 CPU0 的 RAM 中
@@ -56,7 +57,7 @@ int core0_main(void)
     cpu_wait_event_ready();
     while (TRUE)
     {
-        
+        key4_double_click_start();
     }
 
 }

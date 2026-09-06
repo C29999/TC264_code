@@ -14,4 +14,5 @@ void show_boot_ani(void);
 void show_center(const char *text);
 void display_draw(void);
 void diplay_key_control(void);
+void key4_double_click_start(void);
 #endif
