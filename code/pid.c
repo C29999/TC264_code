@@ -2,25 +2,24 @@
 #include "imu.h"
 
 /**
- * 方向环主力：平方P PD + 陀螺抑制
- * 和普通PD的区别：P = kp*e²/12500 + ki，误差越大P越猛（弯道自动加力）
- * D项是低通滤波后的误差本身（微分先行思想，抑制噪声）
- * 末尾 - gyro_z*kgyro：车已经在转就反向抵消一部分，防止舵机打过冲
- * 输出单位：舵机角度（度）
- * 注意12500、kgyro都是配套的标定量，只改kp/ki/kd时不要动它
+ * 方向环：线性P + 平方P + 滤波D + 陀螺阻尼
+ * 转角 = KP*error + KP2*error*|error| + KD*低通(diff) - gyro_z*GKD
+ * 线性P：小误差时温和纠偏
+ * 平方P：大误差时自动加力（过弯），且保留符号不丢方向
+ * D：一阶低通微分，抑制超调
+ * 陀螺：车身角速度反馈，转向过快时反向拉
  */
 float quadradic_pid_solve(pid_param_t *pid, float error)
 {
-    pid->out_p = pid->kp * error * error / 12500.f + pid->ki;
+    pid->out_p = pid->kp * error + pid->kp2 * error * fabsf(error);
 
-    // 真正的微分先行 + 一阶低通（抑制噪声）
     float diff = error - pid->pre_error;
     pid->out_d = diff * pid->low_pass + pid->out_d * (1.f - pid->low_pass);
 
     pid->pre_pre_error = pid->pre_error;
     pid->pre_error = error;
 
-    return MINMAX(error * pid->out_p, -pid->p_max, pid->p_max)
+    return MINMAX(pid->out_p, -pid->p_max, pid->p_max)
          + MINMAX(pid->kd * pid->out_d, -pid->d_max, pid->d_max)
          - gyro_z * pid->kgyro;
 }

@@ -1,7 +1,7 @@
 #include "display.h"
 #include "pid.h"
 #include "data.h"
-#include "isr.h"
+#include "isr.h"`
 
 //前向声明：这些static函数定义在display_draw()后面，ctc编译器必须先声明才能调用
 static void display_main_drow(void);
@@ -230,11 +230,11 @@ static uint16 edge_map_y(int16 y)
 {
     if (y < 0)   y = 0;
     if (y > 119) y = 119;
-    return 180 + (uint16)(y * 80 / 120);
+    return (uint16)(y * 80 / 120);
 }
 void show_draw_edges(void)
 {
-    const uint16 by = 180;     // 鸟瞰图显示区域原点 y
+    const uint16 by = 0;       // 右上角原图显示区域原点 y
     uint16 i;
 
     // 图像中心竖线：黄色，画在二值图上（无论有没有边线都显示）
@@ -284,9 +284,34 @@ void show_draw_edges(void)
         // 从近端(底部)往远端逐行连线
         for (y2 = MT9V03X_H - 1; y2 >= 0; y2--)
         {
-            if (lx[y2] >= 0 && rx[y2] >= 0)     mx = (lx[y2] + rx[y2]) / 2;   //双边:真中点
-            else if (lx[y2] >= 0)               mx = lx[y2] + TRACK_HALF_W;   //仅左:虚拟
-            else if (rx[y2] >= 0)               mx = rx[y2] - TRACK_HALF_W;   //仅右:虚拟
+            if (lx[y2] >= 0 && rx[y2] >= 0)
+            {
+                mx = (lx[y2] + rx[y2]) / 2;   //双边:真中点
+            }
+            else if (lx[y2] >= 0)
+            {
+                // 仅左线：沿法线向右偏移半宽（用相邻有效行算斜率）
+                int16 yp = y2, yn = y2;
+                while (yp > 0 && lx[yp] < 0) yp--;
+                while (yn < MT9V03X_H - 1 && lx[yn] < 0) yn++;
+                float ddx = (float)(lx[yn] - lx[yp]);
+                float ddy = (float)(yn - yp);
+                float ddn = sqrtf(ddx * ddx + ddy * ddy);
+                if (ddn > 0.01f) { ddx /= ddn; ddy /= ddn; }
+                mx = lx[y2] - (int16)(ddy * TRACK_HALF_W);
+            }
+            else if (rx[y2] >= 0)
+            {
+                // 仅右线：沿法线向左偏移半宽
+                int16 yp = y2, yn = y2;
+                while (yp > 0 && rx[yp] < 0) yp--;
+                while (yn < MT9V03X_H - 1 && rx[yn] < 0) yn++;
+                float ddx = (float)(rx[yn] - rx[yp]);
+                float ddy = (float)(yn - yp);
+                float ddn = sqrtf(ddx * ddx + ddy * ddy);
+                if (ddn > 0.01f) { ddx /= ddn; ddy /= ddn; }
+                mx = rx[y2] + (int16)(ddy * TRACK_HALF_W);
+            }
             else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
 
             if (prev_x >= 0)
@@ -299,14 +324,13 @@ void show_draw_edges(void)
 }
 void display_draw(void)
 {
-    diplay_key_control();
-if (mt9v03x_finish_flag)
-{
+    // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
+    // mt9v03x_finish_flag 在图像处理前会被清零，不能作为显示门控。
     ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
-    ips200_show_gray_image(127, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 110, 80, 128);   
+    ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
     ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
     show_draw_edges();
-}
+
     if(current_page == PAGE_MAIN)
     {
         display_main_drow();
@@ -335,14 +359,16 @@ if (mt9v03x_finish_flag)
         show_red_bold(0,168, show_buf, RGB565_GREEN);
         sprintf(show_buf,"pure:%05.1f",(double)pure_angle);
         show_red_bold(0,188, show_buf, RGB565_GREEN);
+        sprintf(show_buf,"gyro:%+06.1f",(double)gyro_z);
+        show_red_bold(0,208, show_buf, RGB565_YELLOW);
         sprintf(show_buf,"aim :%05.2f",(double)aim_distance);
-        show_red_bold(0,208, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"l_out:%03d",(int)motor_pid_l.output);
         show_red_bold(0,228, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"r_out:%03d",(int)motor_pid_r.output);
+        sprintf(show_buf,"l_out:%03d",(int)motor_pid_l.output);
         show_red_bold(0,248, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"error:%03d",image_error_filter);
+        sprintf(show_buf,"r_out:%03d",(int)motor_pid_r.output);
         show_red_bold(0,268, show_buf, RGB565_GREEN);
+        sprintf(show_buf,"error:%03d",image_error_filter);
+        show_red_bold(0,288, show_buf, RGB565_GREEN);
         sprintf(show_buf,"pts:%03d/%03d",rpts0s_num,rpts1s_num);
         show_red_bold(108,108, show_buf, RGB565_CYAN);
         sprintf(show_buf,"ang:%.0f/%.0f",conf1_max*57.3f,conf2_max*57.3f);
@@ -381,11 +407,14 @@ void display_main_drow(void)
 //
 static float pid_step(uint8 i)
 {
-    if (i == 0) return 5.0f;      //servo.kp (量级170)
-    if (i == 4) return 0.01f;     //servo.kgyro
-    if (i == 1 || i == 6) return 0.1f;   //ki
-    if (i == 2 || i == 7) return 0.5f;   //kd
-    if (i == 3 || i == 8) return 0.05f;  //low_pass
+    // 双PD: 0=kp 1=kp2 2=kd 3=low_pass 4=kgyro
+    if (i == 0) return 0.1f;       //servo.kp  (量级1.0)
+    if (i == 1) return 0.01f;      //servo.kp2 (量级0.05)
+    if (i == 4) return 0.01f;      //servo.kgyro
+    if (i == 2) return 1.0f;       //servo.kd  (量级0.8)
+    if (i == 3) return 0.05f;     //servo.low_pass
+    if (i == 6 || i == 7) return 0.1f;  //motor ki/kd
+    if (i == 8) return 0.05f;           //motor.low_pass
     return 1.0f;                  //motor.kp (i==5)
 }
 
@@ -400,7 +429,7 @@ static void param_apply_delta(int8 sign)
         switch (param_cursor)
         {
         case 0: servo_pid.kp += step;                  break;
-        case 1: servo_pid.ki += step;                  break;
+        case 1: servo_pid.kp2 += step;                 break;
         case 2: servo_pid.kd += step;                  break;
         case 3: servo_pid.low_pass += step;            break;
         case 4: servo_pid.kgyro += step;               break;
@@ -568,10 +597,10 @@ static void tuning_draw_pid(void)
     const uint8 dy = 20;
     uint8 hi;
     const char *name[PID_PARAM_NUM] = {
-        "srv.kp:","srv.ki:","srv.kd:","srv.lp:","srv.gy:",
+        "srv.kp:","srv.k2:","srv.kd:","srv.lp:","srv.gy:",
         "mot.kp:","mot.ki:","mot.kd:","mot.lp:"
     };
-    float val[PID_PARAM_NUM] = {servo_pid.kp, servo_pid.ki, servo_pid.kd, servo_pid.low_pass, servo_pid.kgyro,
+    float val[PID_PARAM_NUM] = {servo_pid.kp, servo_pid.kp2, servo_pid.kd, servo_pid.low_pass, servo_pid.kgyro,
                                 motor_pid_l.kp, motor_pid_l.ki, motor_pid_l.kd, motor_pid_l.low_pass};
     show_red_bold(106, 88, "PID TUNING", RGB565_RED);
     for (hi = 0; hi < PID_PARAM_NUM; hi++)
@@ -625,7 +654,7 @@ void key4_double_click_start(void)
             {
                 // ===== 双击触发：发车 =====
                 stop_flog = 0;             // 清除出赛道保护标志
-                base_speed = -240;        // 改成你的起步速度
+                base_speed = -180;        // 改成你的起步速度
                 key4_first = 0;
             }
             else
@@ -635,7 +664,6 @@ void key4_double_click_start(void)
             }
         }
     }
-
     // 第一次按下后超时未按第二次，复位
     if (key4_first && (system_ms - key4_tick > DOUBLE_GAP))
     {

@@ -34,7 +34,6 @@
 ********************************************************************************************************************/
 #include "zf_common_headfile.h"
 
-#include "wifi_spi.h"
 #include "image.h"
 #include "display.h"
 
@@ -52,7 +51,7 @@ int core0_main(void)
 {
     clock_init();
     debug_init();
-    system_0_init();                     // WIFI初始化 + 摄像头初始化
+    system_0_init();
 
     cpu_wait_event_ready();
     while (TRUE)

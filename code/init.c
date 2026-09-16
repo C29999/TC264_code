@@ -17,7 +17,7 @@ void system_0_init(void)
     motor_init();
     pit_ms_init(CCU60_CH0, 5);          // 5ms 定时器：IMU采集 + 按键扫描节拍
     pit_ms_init(CCU60_CH1, 1000);       // 1s 定时器，用于帧率计算
-    pit_ms_init(CCU61_CH0, 5);          // 5ms 定时器：方向环（舵机），加快响应
+    pit_ms_init(CCU61_CH0, 2);          // 2ms 定时器：方向环（舵机），和国一一致
     pit_ms_init(CCU61_CH1, 10);         // 10ms 定时器：编码器 + 速度环
 }
 void system_1_init(void)
@@ -26,10 +26,8 @@ void system_1_init(void)
     if (mt9v03x_init() != 0)
     {
         /* 摄像头 I2C 通讯失败（排线没插/模块供电异常） */
-        wifi_result = 2;
-       // wifi_stage  = 255;
-       show_center("MT9V03X Error");
-       system_delay_ms(800);
+        show_center("MT9V03X Error");
+        system_delay_ms(800);
     }
     else 
     {

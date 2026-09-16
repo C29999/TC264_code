@@ -1,0 +1,317 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>双PD 调参面板</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', system-ui, sans-serif; padding: 12px; }
+.wrap { max-width: 760px; margin: 0 auto; }
+h2 { text-align: center; font-size: 16px; margin-bottom: 10px; color: #89b4fa; }
+
+/* ---- 公式区 ---- */
+.formula-box { background: #11111b; border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; border: 1px solid #313244; }
+.formula { font-size: 13px; line-height: 2.0; font-family: 'Cascadia Code', 'Consolas', monospace; }
+.formula .kw { color: #f9e2af; font-weight: 600; }
+.formula .num { color: #a6e3a1; }
+.formula .op { color: #f38ba8; }
+.formula .cmt { color: #6c7086; font-size: 11px; }
+
+/* ---- 曲线区 ---- */
+.chart-wrap { background: #181825; border-radius: 10px; padding: 12px; border: 1px solid #313244; margin-bottom: 12px; }
+canvas { width: 100%; height: 300px; display: block; }
+.legend { display: flex; justify-content: center; gap: 20px; margin-top: 6px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.legend-dot { width: 14px; height: 3px; border-radius: 2px; }
+
+/* ---- 滑条区 ---- */
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.ctrl-card { background: #181825; border-radius: 8px; padding: 10px 14px; border: 1px solid #313244; }
+.ctrl-card label { font-size: 11px; color: #a6adc8; display: block; margin-bottom: 4px; }
+.ctrl-card .val { font-size: 13px; color: #f9e2af; font-weight: 600; float: right; }
+.ctrl-card .range { color: #6c7086; font-size: 10px; margin-top: 2px; }
+input[type=range] { width: 100%; height: 6px; -webkit-appearance: none; background: #313244; border-radius: 3px; outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #89b4fa; cursor: pointer; }
+.ctrl-card.kp2 input[type=range]::-webkit-slider-thumb { background: #f9e2af; }
+.ctrl-card.kd input[type=range]::-webkit-slider-thumb { background: #a6e3a1; }
+.ctrl-card.gkd input[type=range]::-webkit-slider-thumb { background: #f38ba8; }
+
+/* ---- 实时计算 ---- */
+.calc-box { background: #11111b; border-radius: 8px; padding: 10px 16px; margin-bottom: 12px; border: 1px solid #313244; font-size: 12px; line-height: 1.8; font-family: 'Cascadia Code', monospace; }
+.calc-box .label { color: #6c7086; }
+.calc-box .val { color: #a6e3a1; }
+.calc-box .sep { color: #313244; }
+
+/* ---- 调参步骤 ---- */
+.step-card { background: #181825; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px; border: 1px solid #313244; border-left: 4px solid #89b4fa; }
+.step-card.warn { border-left-color: #f9e2af; }
+.step-num { display: inline-block; background: #89b4fa; color: #1e1e2e; font-weight: 700; font-size: 11px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; margin-right: 6px; }
+.step-title { font-size: 13px; font-weight: 600; }
+.step-body { font-size: 11px; color: #a6adc8; margin-top: 6px; line-height: 1.6; }
+.step-body .kw { color: #f9e2af; }
+.step-body .bad { color: #f38ba8; }
+.step-body .ok { color: #a6e3a1; }
+.step-body .tip { color: #89b4fa; }
+table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10px; }
+th { background: #313244; color: #cdd6f4; padding: 4px 6px; text-align: left; border-radius: 3px; }
+td { padding: 3px 6px; border-bottom: 1px solid #313244; color: #a6adc8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>双PD 转向环 调参面板</h2>
+
+  <!-- 公式 -->
+  <div class="formula-box">
+    <div class="formula">
+      <span class="cmt">// 转角值 =</span><br>
+      <span class="kw">error</span> <span class="op">×</span> <span class="num" id="f-kp">KP</span>
+      <span class="op">+</span> <span class="kw">error</span> <span class="op">×</span> <span class="op">|</span><span class="kw">error</span><span class="op">|</span> <span class="op">×</span> <span class="num" id="f-kp2">KP2</span>
+      <span class="op">+</span> (<span class="kw">error</span> <span class="op">-</span> <span class="kw">pre_error</span>) <span class="op">×</span> <span class="num" id="f-kd">KD</span>
+      <span class="op">+</span> <span class="kw">gyro_z</span> <span class="op">×</span> <span class="num" id="f-gkd">GKD</span><br>
+      <span class="cmt">// 线性P（小误差温和） + 平方P（大误差猛打） + 误差D（阻尼） + 陀螺D（角速度阻尼）</span>
+    </div>
+  </div>
+
+  <!-- 曲线 -->
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#f38ba8"></div>线性P: KP×error</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#89b4fa"></div>平方P: KP2×error×|error|</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a6e3a1"></div>总P输出</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#6c7086;border-top:2px dashed #6c7086"></div>舵机限幅 ±14.5°</div>
+    </div>
+  </div>
+
+  <!-- 滑条 -->
+  <div class="controls">
+    <div class="ctrl-card">
+      <label>KP（线性P增益）<span class="val" id="kp-val">1.0</span></label>
+      <input type="range" id="kp" min="0" max="3" step="0.05" value="1.0">
+      <div class="range">0 ~ 3.0</div>
+    </div>
+    <div class="ctrl-card kp2">
+      <label>KP2（平方P增益）<span class="val" id="kp2-val">0.05</span></label>
+      <input type="range" id="kp2" min="0" max="0.2" step="0.005" value="0.05">
+      <div class="range">0 ~ 0.20</div>
+    </div>
+    <div class="ctrl-card kd">
+      <label>KD（误差微分D）<span class="val" id="kd-val">0.8</span></label>
+      <input type="range" id="kd" min="0" max="2" step="0.05" value="0.8">
+      <div class="range">0 ~ 2.0</div>
+    </div>
+    <div class="ctrl-card gkd">
+      <label>GKD（陀螺阻尼D）<span class="val" id="gkd-val">0.06</span></label>
+      <input type="range" id="gkd" min="0" max="0.2" step="0.005" value="0.06">
+      <div class="range">0 ~ 0.20</div>
+    </div>
+  </div>
+
+  <!-- 实时计算示例 -->
+  <div class="calc-box" id="calc-box">
+    <!-- JS 填充 -->
+  </div>
+
+  <!-- 调参步骤 -->
+  <div class="step-card">
+    <span class="step-num">1</span><span class="step-title">先关掉 KP2，只调 KP</span>
+    <div class="step-body">
+      设 <span class="kw">KP2=0</span>，从 KP=1.0 开始直道低速跑。<br>
+      <table>
+        <tr><th>现象</th><th>动作</th></tr>
+        <tr><td>不纠偏但走歪</td><td>KP +0.2 往上加</td></tr>
+        <tr><td>直道开始摆</td><td><span class="bad">KP 太大</span>，退回不摆的值</td></tr>
+        <tr><td>直道稳能纠偏</td><td><span class="ok">KP 定了</span>，进第2步</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <span class="step-num">2</span><span class="step-title">加 KP2，让弯道自动加力</span>
+    <div class="step-body">
+      KP 不动，从 <span class="kw">KP2=0.01</span> 开始跑弯道。<br>
+      <table>
+        <tr><th>现象</th><th>动作</th></tr>
+        <tr><td>弯道转不动</td><td>KP2 +0.01 往上加</td></tr>
+        <tr><td>弯道能过但直道开始摆</td><td><span class="bad">KP2 太大</span>，退回</td></tr>
+        <tr><td>弯道能过直道不摆</td><td><span class="ok">KP2 定了</span>，进第3步</td></tr>
+      </table>
+      <span class="tip">小误差→KP主导（直道温和），大误差→KP2主导（弯道猛打）</span>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <span class="step-num">3</span><span class="step-title">加 KD，压住振荡</span>
+    <div class="step-body">
+      从 <span class="kw">KD=0.3</span> 开始，KP/KP2 不动。<br>
+      <table>
+        <tr><th>现象</th><th>动作</th></tr>
+        <tr><td>入弯 overshoot</td><td>KD +0.1</td></tr>
+        <tr><td>舵机发抖/迟钝</td><td><span class="bad">KD 太大</span>，降回来</td></tr>
+        <tr><td>过渡平滑</td><td><span class="ok">KD 定了</span>，进第4步</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="step-card">
+    <span class="step-num">4</span><span class="step-title">加 GKD，陀螺最后一道防线</span>
+    <div class="step-body">
+      从 <span class="kw">GKD=0.03</span> 开始。<br>
+      <table>
+        <tr><th>现象</th><th>动作</th></tr>
+        <tr><td>高速直道微摆</td><td>GKD +0.01</td></tr>
+        <tr><td>弯道回正太慢</td><td><span class="bad">GKD 太大</span>，降回来</td></tr>
+        <tr><td>整体稳了</td><td><span class="ok">全部参数定了</span></td></tr>
+      </table>
+      <span class="tip">GKD 太大会让车"怕转弯"——刚一转就陀螺拉回来</span>
+    </div>
+  </div>
+
+  <div class="step-card warn">
+    <span class="step-num">!</span><span class="step-title">铁律：一次只改一个参数</span>
+    <div class="step-body">
+      <span class="bad">绝对不要同时改两个参数</span>，改完→烧录→跑一圈→观察→再调下一个</div>
+  </div>
+
+  <div class="step-card">
+    <span class="step-num">5</span><span class="step-title">提速后微调</span>
+    <div class="step-body">
+      <table>
+        <tr><th>高速现象</th><th>微调</th></tr>
+        <tr><td>直道微摆</td><td>GKD +0.02 或 KD +0.1</td></tr>
+        <tr><td>弯道转不动</td><td>KP2 +0.01（不动 KP）</td></tr>
+        <tr><td>入弯冲过</td><td>KD +0.1</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = canvas.offsetWidth; canvas.height = 300; }
+resize();
+window.addEventListener('resize', () => { resize(); draw(); });
+
+const sliders = {
+  kp:  document.getElementById('kp'),
+  kp2: document.getElementById('kp2'),
+  kd:  document.getElementById('kd'),
+  gkd: document.getElementById('gkd')
+};
+const labels = {
+  kp:  document.getElementById('kp-val'),
+  kp2: document.getElementById('kp2-val'),
+  kd:  document.getElementById('kd-val'),
+  gkd: document.getElementById('gkd-val')
+};
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  const kp  = parseFloat(sliders.kp.value);
+  const kp2 = parseFloat(sliders.kp2.value);
+  labels.kp.textContent  = kp.toFixed(1);
+  labels.kp2.textContent = kp2.toFixed(2);
+
+  ctx.clearRect(0, 0, W, H);
+  const padL = 40, padR = 20, padT = 20, padB = 30;
+  const pw = W - padL - padR, ph = H - padT - padB;
+  const xMin = -15, xMax = 15, yMin = -18, yMax = 18;
+  const x2p = x => padL + (x - xMin) / (xMax - xMin) * pw;
+  const y2p = y => padT + (yMax - y) / (yMax - yMin) * ph;
+
+  // grid
+  ctx.strokeStyle = '#313244'; ctx.lineWidth = 1; ctx.fillStyle = '#6c7086'; ctx.font = '10px system-ui';
+  for (let g = -15; g <= 15; g += 5) {
+    ctx.beginPath(); ctx.moveTo(x2p(g), padT); ctx.lineTo(x2p(g), padT + ph); ctx.stroke();
+    if (g) ctx.fillText(g, x2p(g) - 6, padT + ph + 14);
+  }
+  for (let g = -15; g <= 15; g += 5) {
+    ctx.beginPath(); ctx.moveTo(padL, y2p(g)); ctx.lineTo(padL + pw, y2p(g)); ctx.stroke();
+    if (g) ctx.fillText(g, 6, y2p(g) + 3);
+  }
+  // axes
+  ctx.strokeStyle = '#585b70'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(padL, y2p(0)); ctx.lineTo(padL + pw, y2p(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2p(0), padT); ctx.lineTo(x2p(0), padT + ph); ctx.stroke();
+  // limit
+  ctx.strokeStyle = '#6c7086'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(padL, y2p(14.5)); ctx.lineTo(padL + pw, y2p(14.5)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(padL, y2p(-14.5)); ctx.lineTo(padL + pw, y2p(-14.5)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // linear P
+  ctx.strokeStyle = '#f38ba8'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i <= 200; i++) {
+    const x = xMin + (xMax - xMin) * i / 200;
+    const y = Math.max(yMin, Math.min(yMax, kp * x));
+    if (i) ctx.lineTo(x2p(x), y2p(y)); else ctx.moveTo(x2p(x), y2p(y));
+  }
+  ctx.stroke();
+
+  // square P
+  ctx.strokeStyle = '#89b4fa'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i <= 200; i++) {
+    const x = xMin + (xMax - xMin) * i / 200;
+    const y = Math.max(yMin, Math.min(yMax, kp2 * x * Math.abs(x)));
+    if (i) ctx.lineTo(x2p(x), y2p(y)); else ctx.moveTo(x2p(x), y2p(y));
+  }
+  ctx.stroke();
+
+  // total P
+  ctx.strokeStyle = '#a6e3a1'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i = 0; i <= 200; i++) {
+    const x = xMin + (xMax - xMin) * i / 200;
+    const y = Math.max(yMin, Math.min(yMax, kp * x + kp2 * x * Math.abs(x)));
+    if (i) ctx.lineTo(x2p(x), y2p(y)); else ctx.moveTo(x2p(x), y2p(y));
+  }
+  ctx.stroke();
+
+  // labels
+  ctx.fillStyle = '#f38ba8'; ctx.font = '11px system-ui'; ctx.fillText('线性P', x2p(12), y2p(kp*12) - 6);
+  ctx.fillStyle = '#89b4fa'; ctx.fillText('平方P', x2p(12), y2p(kp2*12*12) - 6);
+  ctx.fillStyle = '#a6e3a1'; ctx.fillText('总P', x2p(12), y2p(kp*12 + kp2*12*12) + 14);
+  ctx.fillStyle = '#6c7086'; ctx.font = '9px system-ui';
+  ctx.fillText('+14.5', padL + pw - 30, y2p(14.5) - 3);
+  ctx.fillText('-14.5', padL + pw - 30, y2p(-14.5) + 10);
+}
+
+function updateCalc() {
+  const kp  = parseFloat(sliders.kp.value);
+  const kp2 = parseFloat(sliders.kp2.value);
+  const kd  = parseFloat(sliders.kd.value);
+  const gkd = parseFloat(sliders.gkd.value);
+  labels.kd.textContent  = kd.toFixed(1);
+  labels.gkd.textContent = gkd.toFixed(2);
+
+  // 示例：error=10, diff=2, gyro_z=5
+  const err = 10, diff = 2, gz = 5;
+  const p_lin = kp * err;
+  const p_sq  = kp2 * err * Math.abs(err);
+  const d_err = kd * diff;
+  const d_gyr = gkd * gz;
+  const total = p_lin + p_sq + d_err + d_gyr;
+  const clamped = Math.max(-14.5, Math.min(14.5, total));
+
+  const box = document.getElementById('calc-box');
+  box.innerHTML =
+    `<span class="label">// 示例：error=10, diff=2, gyro_z=5</span><br>` +
+    `<span class="label">线性P =</span> <span class="val">${kp.toFixed(1)}</span> × 10 = <span class="val">${p_lin.toFixed(1)}°</span><br>` +
+    `<span class="label">平方P =</span> <span class="val">${kp2.toFixed(2)}</span> × 10 × 10 = <span class="val">${p_sq.toFixed(1)}°</span><br>` +
+    `<span class="label">误差D =</span> <span class="val">${kd.toFixed(1)}</span> × 2 = <span class="val">${d_err.toFixed(1)}°</span><br>` +
+    `<span class="label">陀螺D =</span> <span class="val">${gkd.toFixed(2)}</span> × 5 = <span class="val">${d_gyr.toFixed(2)}°</span><br>` +
+    `<span class="sep">─────────────────</span><br>` +
+    `<span class="label">总输出 =</span> <span class="val">${total.toFixed(1)}°</span> → 限幅 <span class="val">${clamped.toFixed(1)}°</span>`;
+}
+
+Object.values(sliders).forEach(s => s.addEventListener('input', () => { draw(); updateCalc(); }));
+draw();
+updateCalc();
+</script>
+</body>
+</html>

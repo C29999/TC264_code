@@ -23,11 +23,6 @@ typedef struct image
 } image_t;
 #define AT_IMAGE(img, x, y) ((img)->data[(y) * (img)->step + (x)])
 
-#define PERS_BLOCK_SIZE  (7)            // 局部自适应
-#define PERS_CLIP_VALUE  (4)            // 局部均值下探量
-#define PERS_BEGIN_Y     (PERS_H - 12)  // 巡线起始行(近端)
-#define PERS_BEGIN_X     (8)           // 起点距画面中心的横向偏移
-
 extern uint8 img_pers_data[PERS_H][PERS_W];     // 鸟瞰灰度图（逆透视输出）
 extern int16 touch_boundary0;   // 左巡线碰到图像边界（十字/环岛判据）
 extern int16 touch_boundary1;   // 右巡线碰到图像边界
@@ -42,9 +37,8 @@ void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W]);
 void image_threshold_block(const uint8 image[MT9V03X_H][MT9V03X_W]);
 void image_display_otsu_thresholds(void);
 void anti_perspective_fast(void);
-void findline_lefthand_adaptive(image_t *img, int16 block_size, int16 clip_value, int16 x, int16 y, int16 pts[][2], int16 *num);
-void findline_righthand_adaptive(image_t *img, int16 block_size, int16 clip_value, int16 x, int16 y, int16 pts[][2], int16 *num);
-void find_edges_pers(void);
+void find_edges_binary(void);
+void process_edge_points(void);
 void calculation_error(void);
 void track_protection(void);
 
@@ -81,7 +75,7 @@ extern int16 Lpt0_found, Lpt1_found;
 extern int16 N_Lpt0_found, N_Lpt1_found;
 
 /* ================ 远端角点 ================ */
-extern int16 far_Lpt0_rpts0s_id, far_Lpt1_rpts1s_id;
+extern int16 far_Lpt0_rpts0s_id, far_Lpt1_rpts0s_id;
 extern int16 far_Lpt0_found, far_Lpt1_found;
 extern float far_rpts0s[POINTS_MAX_LEN][2];
 extern float far_rpts1s[POINTS_MAX_LEN][2];

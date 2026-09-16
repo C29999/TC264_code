@@ -34,6 +34,7 @@
 ********************************************************************************************************************/
 
 #include "zf_common_headfile.h"
+#include "isr.h"
 #pragma section all "cpu1_dsram"
 // ���������#pragma section all restore���֮���ȫ�ֱ���������CPU1��RAM��
 
@@ -54,19 +55,43 @@ void core1_main(void)
     camera_param_init();            // 初始化逆透视查找表（占位恒等表，标定后换真表）
     while (TRUE)
     {
-        key_scanner();
-        display_draw();
+        // 每 10ms 扫描一次按键，保证稳定周期且响应快
+        static uint32 last_key_ms = 0;
+        static uint32 last_display_ms = 0;
+        static uint32 last_wifi_image_ms = 0;
+        static uint32 last_wifi_data_ms = 0;
+        const uint32 DISPLAY_REFRESH_MS = 100;
+        const uint32 WIFI_IMAGE_PERIOD_MS = 200;
+        const uint32 WIFI_DATA_PERIOD_MS = 100;
+        if (system_ms - last_key_ms >= 10)
+        {
+            last_key_ms = system_ms;
+            key_scanner();
+            diplay_key_control();
+        }
+        if (system_ms - last_display_ms >= DISPLAY_REFRESH_MS)
+        {
+            display_draw();
+            last_display_ms = system_ms;
+        }
+        if (system_ms - last_wifi_data_ms >= WIFI_DATA_PERIOD_MS)
+        {
+            wifi_debug_data();
+            last_wifi_data_ms = system_ms;
+        }
         if (mt9v03x_finish_flag)
         {
-
-            wifi_debug();
             mt9v03x_finish_flag=0;
             fps_count++;
-            anti_perspective_fast();        // 1.原图→鸟瞰图（查表逆透视）
-            image_threshold(img_pers_data); // 2.鸟瞰图二值化（供显示+起点阈值）
-            find_edges_pers();              // 3.鸟瞰图自适应巡线
-            process_edge_points();          // 4.点云流水线（鸟瞰像素→米）
-            calculation_error();            // 5.中线偏差
+            image_threshold(mt9v03x_image); // 1.原图大津二值化
+            find_edges_binary();            // 2.原图二值图迷宫法巡线
+            process_edge_points();          // 3.边线点云处理
+            calculation_error();            // 4.中线偏差
+            if (system_ms - last_wifi_image_ms >= WIFI_IMAGE_PERIOD_MS)
+            {
+                wifi_debug();
+                last_wifi_image_ms = system_ms;
+            }
         }
     }
 }

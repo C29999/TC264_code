@@ -15,6 +15,8 @@ extern int16 image_center;//图像中心位置
 extern int16 image_error;//图像误差
 extern int16 mid; //赛道中点的位置
 extern int16 image_error_filter;//图像误差滤波
+extern int16 dif_val;        //方向中环输出的差速量
+extern int16 dif_add_speed;        //方向中环输出的差速加量
 
 extern uint8 stop_flog;
 extern int16 base_speed, straight_speed, long_straight_speed;

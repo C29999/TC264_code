@@ -48,7 +48,7 @@ IFX_INTERRUPT(cc60_pit_ch0_isr, 0, CCU6_0_CH0_ISR_PRIORITY)
     pit_clear_flag(CCU60_CH0);
     system_ms += 5;
     imu_update();
-    key_scanner();
+    // key_scanner() 移到 CPU1 主循环定时调用，避免中断优先级影响
 }
 IFX_INTERRUPT(cc60_pit_ch1_isr, 0, CCU6_0_CH1_ISR_PRIORITY)
 {
@@ -63,7 +63,21 @@ IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH0);
     angle = quadradic_pid_solve(&servo_pid, pure_angle);
-    servo_set(angle);
+    // 舵机输出低通滤波，抑制抖动
+    {
+        static float angle_lpf = 0;
+        angle_lpf = angle * 0.4f + angle_lpf * 0.6f;
+        angle = angle_lpf;
+    }
+    // 只在角度变化超过0.1度时才写PWM，避免2ms高频刷新导致舵机抖
+    {
+        static float last_angle = 9999.0f;
+        if (fabsf(angle - last_angle) > 0.1f)
+        {
+            last_angle = angle;
+            servo_set(angle);
+        }
+    }
 }
 
 IFX_INTERRUPT(cc61_pit_ch1_isr, 0, CCU6_1_CH1_ISR_PRIORITY)
