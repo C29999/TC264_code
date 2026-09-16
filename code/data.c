@@ -34,8 +34,8 @@ float pure_angle = 0;        // 鍓嶇灮瑙掞紙搴︼級锛屾柟鍚戠幆杈
 float pure_rad   = 0;        // 鍓嶇灮瑙掞紙寮у害锛夛紝鍥惧儚渚х畻鍑�
 float aim_distance = 0.5;    // 鍓嶇灮璺濈锛堢背锛夛紝缂╃煭鍓嶇灮鍑忓皯杩囧啿
 float angle = 0;             // 鑸垫満瑙掕緭鍑猴紙搴︼級锛岄檺卤14.5
-float turn_diff = 2.2f;       // 差速比（内轮减速比例 0~1，越大差速越强，0.9≈强）
-float turn_diff_outer = 0;   // 外轮加速比例（相对内轮减速量：0=不加速 0.5=一半 1=同量，越大差速越强）
+float turn_diff = 1.1f;       // 差速比（内轮减速比例 0~1，越大差速越强，0.9≈强）
+float turn_diff_outer = 1.1f;   // 外轮加速比例（相对内轮减速量：0=不加速 0.5=一半 1=同量，越大差速越强）
 
 void data_init(void)
 {
