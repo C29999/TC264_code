@@ -28,7 +28,7 @@ int16 touch_boundary0 = 0;      // 左巡线碰到图像边界
 int16 touch_boundary1 = 0;      // 右巡线碰到图像边界
 // 二值图中白色像素的判断阈值。
 #define EDGE_WHITE_THRESHOLD (128)
-#define BINARY_START_Y        (PERS_H - 3)
+#define BINARY_START_Y        (PERS_H - 3)   // 迷宫法起始行（改回原值）
 #define BINARY_START_OFFSET   (8)
 #define BINARY_START_SEARCH_H (12)
 
@@ -563,7 +563,7 @@ void find_edges_binary(void)
 {
     int16 left_x;
     int16 right_x;
-    int16 y = PERS_H - 3;
+    int16 y = PERS_H - 3;   // 起始行初值，与 BINARY_START_Y 一致（find_binary_start 内会被覆盖）
 
     touch_boundary0 = 0;
     touch_boundary1 = 0;
@@ -581,70 +581,79 @@ void find_edges_binary(void)
  * 鸟瞰米制坐标下：中线前瞻点相对车头方向的偏角 → pure_angle（方向环输入，单位：度）
  * 三分支：双边取中线前瞻 / 单边±米制半宽补线 / 全丢保持上次输出
  */
+/* 单边补线：丢线时用最近一次双边实测的米制半宽向缺线侧补中线（免像素-米换算） */
 void calculation_error(void)
 {
+    // 动态半宽：最近一次双边实测的赛道半宽（米制），丢线补线用；初值取 TRACK_HALF_W
+    static float track_half_w = TRACK_HALF_W / pixel_per_meter;
     float mx, my;
     float dx, dy, dn;
     float cx, cy;
-    float half_w;
 
     // 车头投影位置：鸟瞰图底部中央（像素→米）
     cx = MT9V03X_W / 2 / pixel_per_meter;
     cy = (MT9V03X_H - 10) / pixel_per_meter;
 
-    // 米制半赛道宽（单边补线用）
-    half_w = TRACK_HALF_W / pixel_per_meter;
-
     // 目标前瞻 y 坐标（车头前方 aim_distance 米处）
     float target_y = cy - aim_distance;
     int16 i, l_idx = -1, r_idx = -1;
     float l_min_d = 1e9f, r_min_d = 1e9f;
+    int16 l_pts = 0, r_pts = 0;
 
-    // 在左线找 y 最接近 target_y 的点
+    // 可靠性判定：距离容差内 且 邻域至少 2 个点（弯道内侧只剩"一点"时视为不可靠，避免残段端点抖动）
+    #define TARGET_Y_TOL     (0.15f)
+    #define TARGET_Y_MIN_PTS (1)   // 改回 1：弯道外侧线为斜线，target_y 邻域点数常不足 2，门槛过高会误判丢线
+    // 在左线找 y 最接近 target_y 的点，并统计容差邻域内的点数
     for (i = 0; i < rpts0s_num; i++)
     {
         float d = fabsf(rpts0s[i][1] - target_y);
+        if (d < TARGET_Y_TOL) l_pts++;
         if (d < l_min_d) { l_min_d = d; l_idx = i; }
     }
-    // 在右线找 y 最接近 target_y 的点
+    // 在右线找 y 最接近 target_y 的点，并统计容差邻域内的点数
     for (i = 0; i < rpts1s_num; i++)
     {
         float d = fabsf(rpts1s[i][1] - target_y);
+        if (d < TARGET_Y_TOL) r_pts++;
         if (d < r_min_d) { r_min_d = d; r_idx = i; }
     }
 
-    if (l_idx >= 0 && r_idx >= 0)            // 双边都找到：同一 y 截面取中点
+    uint8 l_ok = (l_idx >= 0 && l_min_d < TARGET_Y_TOL && l_pts >= TARGET_Y_MIN_PTS);
+    uint8 r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL && r_pts >= TARGET_Y_MIN_PTS);
+
+    if (l_ok && r_ok)            // 双边都找到：同一 y 截面取中点，并更新实测半宽（带低通）
     {
+        float new_half = fabsf(rpts1s[r_idx][0] - rpts0s[l_idx][0]) * 0.5f;
+        if (new_half >= 0.05f)
+            track_half_w = track_half_w * 0.7f + new_half * 0.3f;   // 半宽低通，防残端点污染
         mx = (rpts0s[l_idx][0] + rpts1s[r_idx][0]) / 2;
         my = (rpts0s[l_idx][1] + rpts1s[r_idx][1]) / 2;
     }
-    else if (l_idx >= 0)                     // 只有左线：沿法线向右偏移半宽
+    else if (l_ok)                     // 只有左线：中线 = 左线 + 实测半宽（向赛道中心补）
     {
-        int16 p = clip(l_idx - 3, 0, rpts0s_num - 1);
-        int16 n = clip(l_idx + 3, 0, rpts0s_num - 1);
-        float ddx = rpts0s[n][0] - rpts0s[p][0];
-        float ddy = rpts0s[n][1] - rpts0s[p][1];
-        float ddn = sqrtf(ddx * ddx + ddy * ddy);
-        if (ddn > 0.0001f) { ddx /= ddn; ddy /= ddn; }
-        mx = rpts0s[l_idx][0] - ddy * half_w;   // 法线 = (-dy, dx)
-        my = rpts0s[l_idx][1] + ddx * half_w;
+        mx = rpts0s[l_idx][0] + track_half_w;
+        my = rpts0s[l_idx][1];
     }
-    else if (r_idx >= 0)                     // 只有右线：沿法线向左偏移半宽
+    else if (r_ok)                     // 只有右线：中线 = 右线 - 实测半宽（向赛道中心补）
     {
-        int16 p = clip(r_idx - 3, 0, rpts1s_num - 1);
-        int16 n = clip(r_idx + 3, 0, rpts1s_num - 1);
-        float ddx = rpts1s[n][0] - rpts1s[p][0];
-        float ddy = rpts1s[n][1] - rpts1s[p][1];
-        float ddn = sqrtf(ddx * ddx + ddy * ddy);
-        if (ddn > 0.0001f) { ddx /= ddn; ddy /= ddn; }
-        mx = rpts1s[r_idx][0] + ddy * half_w;   // 法线 = (dy, -dx)
-        my = rpts1s[r_idx][1] - ddx * half_w;
+        mx = rpts1s[r_idx][0] - track_half_w;
+        my = rpts1s[r_idx][1];
     }
     else                                     // 全丢：角度衰减回正
     {
-        pure_angle *= 0.7f;
+        pure_angle *= 0.95f;   // 急弯内侧线短暂缺失时温和保持转向，避免频繁回正来回摆（出赛道保护兜底停车）
         image_error_filter = (int16)pure_angle;
         return;
+    }
+    // 中线 x 帧间低通：抑制 y 截面最近点在离散点云上的跳变（直道防抖）
+    {
+        static uint8 mx_lpf_ready = 0;
+        static float last_mx = 0.0f;
+        if (mx_lpf_ready)
+            mx = mx * 0.5f + last_mx * 0.5f;
+        else
+            mx_lpf_ready = 1;
+        last_mx = mx;
     }
     //车头指向前瞻点的向量（y轴指向车，dy>0 表示目标在前方）
     dx = mx - cx;
@@ -655,8 +664,26 @@ void calculation_error(void)
     // Pure Pursuit 曲率公式
     pure_rad = -atanf(2.0f * 0.3f * dx / (dn * dn));
     float new_angle = pure_rad * 57.2958f / SMOTOR_RATE;
-    // 轻度低通：0.5 新值 + 0.5 旧值，平衡响应和稳定
+    // 直道死区：偏角小于 1° 视为直道，强制归零，抑制直道舵机震荡
+    if (fabsf(new_angle) < 1.0f) new_angle = 0.0f;
+    // 轻度低通：0.35 新值 + 0.65 旧值，平衡响应和稳定
     pure_angle = new_angle * 0.35f + pure_angle * 0.65f;
+    // 帧间变化限幅：单帧最大变化 4°，抑制急弯时偏差/舵机跳变（治抽搐）
+    #define ANGLE_RATE_LIMIT (4.0f)
+    {
+        static float last_angle_out = 0.0f;
+        static uint8 rl_ready = 0;
+        float d;
+        if (rl_ready)
+        {
+            d = pure_angle - last_angle_out;
+            if (d >  ANGLE_RATE_LIMIT) d =  ANGLE_RATE_LIMIT;
+            if (d < -ANGLE_RATE_LIMIT) d = -ANGLE_RATE_LIMIT;
+            pure_angle = last_angle_out + d;
+        }
+        rl_ready = 1;
+        last_angle_out = pure_angle;
+    }
     image_error_filter = (int16)pure_angle;
     mid = (int16)(mx * pixel_per_meter);   // 中线前瞻点 x 像素坐标
 }

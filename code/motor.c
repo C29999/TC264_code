@@ -81,10 +81,13 @@ void go_motor(int16 l, int16 r)
 
 #define LDISTANCE   (200)
 #define BORDWIDTH   (150)
+// 线性差速：turn 是舵机角度(度)，返回内轮需要减掉的速度量
+// 每度减 aim*0.06，angle=10° → 减 60%，angle=14.5° → 减 87%
 int16 differential_add_speed2(int16 aim, float turn)
 {
-    return (int16)(0.5f * aim * BORDWIDTH
-         * tanf(MINMAX(fabsf(PID_ANGLE_TO_RAD(turn)), 0, PID_ANGLE_TO_RAD(SMOTOR_LIMIT)) * turn_diff)/ LDISTANCE);
+    float ratio = fabsf(turn) / SMOTOR_LIMIT;   // 0~1
+    if (ratio > 1.0f) ratio = 1.0f;
+    return (int16)(aim * ratio * turn_diff);      // 内轮减速比例由 data.c 的 turn_diff 控制（原 0.8 常量）
 }
 void speed_control(void)
 {
@@ -95,15 +98,15 @@ void speed_control(void)
 
     if (abs_angle <= 1.0f && min_pts >= straight_need)
     {
-        dynamic_speed = (int16)(base_speed * 1.3f);   // 直道加速
+        dynamic_speed = straight_speed;   // 直道速度
     }
     else
     {
-        // 弯道按角度连续减速：角度越大，速度越低
-        // pure_angle=5° → 1.1, 10° → 0.9, 15° → 0.7, 20° → 0.5
-        float factor = 1.3f - abs_angle * 0.04f;
+        // 弯道按角度连续减速：角度越大，速度越低（斜率 corner_speed_slope 在 data.c 改）
+        // 例（slope=0.04）：5°→×1.10, 10°→×0.90, 15°→×0.70, 20°→×0.50
+        float factor = 1.3f - abs_angle * corner_speed_slope;
         if (factor < 0.4f) factor = 0.4f;            // 最低不低于 40%
-        dynamic_speed = (int16)(base_speed * factor);
+        dynamic_speed = (int16)(corner_speed * factor);
     }
     int16 l_goal = dynamic_speed;
     int16 r_goal = dynamic_speed;
@@ -129,11 +132,23 @@ void speed_control(void)
     }
     else
     {
-        if (angle > 0)
-            l_goal -= differential_add_speed2(dynamic_speed, MINMAX(angle, -12.0f, 12.0f));
-        else
-            r_goal -= differential_add_speed2(dynamic_speed, MINMAX(angle, -12.0f, 12.0f));
+        // 差速（内减外加结构）：内轮减 diff，外轮加 diff_outer，过弯更凌厉
+        int16 diff = differential_add_speed2(dynamic_speed, MINMAX(angle, -12.0f, 12.0f));
+        int16 diff_outer = (int16)(diff * turn_diff_outer);
+        if (angle > 0)      // 右转：左轮为内轮（减速），右轮为外轮（加速）
+        {
+            l_goal -= diff;
+            r_goal += diff_outer;
+        }
+        else                // 左转：右轮为内轮（减速），左轮为外轮（加速）
+        {
+            r_goal -= diff;
+            l_goal += diff_outer;
+        }
     }
+    // 电机目标速度限幅：不允许反向（前进方向为负值，差速后内轮最多减速到 0，不反转）
+    if (l_goal > 0) l_goal = 0;
+    if (r_goal > 0) r_goal = 0;
     int16 l_delta = (int16)increment_pid_solve(&motor_pid_l, l_goal - encoder_left);
     int16 r_delta = (int16)increment_pid_solve(&motor_pid_r, r_goal - encoder_right);
     l_pwm += l_delta;

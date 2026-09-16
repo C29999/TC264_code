@@ -16,7 +16,6 @@ char show_buf[21];
 #define BOLD_TEXT_BUFFER_WIDTH (BOLD_TEXT_MAX_LENGTH * 8 + 1)
 static uint16 bold_text_buffer[BOLD_TEXT_BUFFER_WIDTH * 16];
 static page_t last_display_page = PAGE_MAIN;
-
 #define TUNING_MENU_NUM     (2)     //调参一级目录数量：0=PID, 1=SPEED
 #define PID_PARAM_NUM       (9)     //PID编辑页参数数
 #define SPEED_PARAM_NUM     (3)     //SPEED编辑页参数数
@@ -281,36 +280,23 @@ void show_draw_edges(void)
                 && rx[right_line_points[i][1]] < 0)
                 rx[right_line_points[i][1]] = right_line_points[i][0];
 
-        // 从近端(底部)往远端逐行连线
+        // 从近端(底部)往远端逐行连线；mem_half 记忆最近一次双边行的实测半宽（像素）
+        int16 mem_half = TRACK_HALF_W;
         for (y2 = MT9V03X_H - 1; y2 >= 0; y2--)
         {
             if (lx[y2] >= 0 && rx[y2] >= 0)
             {
                 mx = (lx[y2] + rx[y2]) / 2;   //双边:真中点
+                mem_half = (rx[y2] - lx[y2]) / 2;   //更新实测半宽
+                if (mem_half < 4) mem_half = 4;     //防异常
             }
             else if (lx[y2] >= 0)
             {
-                // 仅左线：沿法线向右偏移半宽（用相邻有效行算斜率）
-                int16 yp = y2, yn = y2;
-                while (yp > 0 && lx[yp] < 0) yp--;
-                while (yn < MT9V03X_H - 1 && lx[yn] < 0) yn++;
-                float ddx = (float)(lx[yn] - lx[yp]);
-                float ddy = (float)(yn - yp);
-                float ddn = sqrtf(ddx * ddx + ddy * ddy);
-                if (ddn > 0.01f) { ddx /= ddn; ddy /= ddn; }
-                mx = lx[y2] - (int16)(ddy * TRACK_HALF_W);
+                mx = lx[y2] + mem_half;   //仅左线:向赛道中心(右)补实测半宽
             }
             else if (rx[y2] >= 0)
             {
-                // 仅右线：沿法线向左偏移半宽
-                int16 yp = y2, yn = y2;
-                while (yp > 0 && rx[yp] < 0) yp--;
-                while (yn < MT9V03X_H - 1 && rx[yn] < 0) yn++;
-                float ddx = (float)(rx[yn] - rx[yp]);
-                float ddy = (float)(yn - yp);
-                float ddn = sqrtf(ddx * ddx + ddy * ddy);
-                if (ddn > 0.01f) { ddx /= ddn; ddy /= ddn; }
-                mx = rx[y2] + (int16)(ddy * TRACK_HALF_W);
+                mx = rx[y2] - mem_half;   //仅右线:向赛道中心(左)补实测半宽
             }
             else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
 
@@ -654,7 +640,7 @@ void key4_double_click_start(void)
             {
                 // ===== 双击触发：发车 =====
                 stop_flog = 0;             // 清除出赛道保护标志
-                base_speed = -180;        // 改成你的起步速度
+                base_speed = -220;        // 改成你的起步速度
                 key4_first = 0;
             }
             else

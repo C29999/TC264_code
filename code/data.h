@@ -19,8 +19,9 @@ extern int16 dif_val;        //方向中环输出的差速量
 extern int16 dif_add_speed;        //方向中环输出的差速加量
 
 extern uint8 stop_flog;
-extern int16 base_speed, straight_speed, long_straight_speed;
-extern float pure_angle, pure_rad, aim_distance, angle, turn_diff;
+extern int16 base_speed, straight_speed, long_straight_speed, corner_speed;
+extern float corner_speed_slope;   // 弯道减速斜率
+extern float pure_angle, pure_rad, aim_distance, angle, turn_diff, turn_diff_outer;
 
 
 void data_init(void);
