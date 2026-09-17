@@ -376,6 +376,8 @@ void display_draw(void)
         show_red_bold(108,148, show_buf, RGB565_RED);
         sprintf(show_buf,"turn:%+05.2f",(double)corner_turn);
         show_red_bold(108,168, show_buf, RGB565_YELLOW);
+        sprintf(show_buf,"ST:%d%d%d%d%d%d%d%d",(state_flags&0x80)?1:0,(state_flags&0x40)?1:0,(state_flags&0x20)?1:0,(state_flags&0x10)?1:0,(state_flags&0x08)?1:0,(state_flags&0x04)?1:0,(state_flags&0x02)?1:0,(state_flags&0x01)?1:0);
+        show_red_bold(108,188, show_buf, RGB565_CYAN);
 
     }
     else if(current_page == PAGE_TUNING)

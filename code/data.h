@@ -26,6 +26,9 @@ extern float pure_angle, pure_rad, aim_distance, angle, turn_diff, turn_diff_out
 extern float corner_cut_px, corner_cut_th, corner_turn;   // 弯道内切参数
 extern float corner_mismatch_th;   // 两侧边线形态差阈值
 extern float mx_rate_limit;   // 中线单帧最大变化
+extern float corner_buz_th;   // 大弯道蜂鸣阈值
+extern int16 buzzer_tick;     // 蜂鸣器剩余响帧数
+extern uint16 state_flags;       // 取线分支状态位
 
 
 void data_init(void);

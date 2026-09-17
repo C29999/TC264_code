@@ -1,6 +1,7 @@
 #include "image.h"
 #include "camera_param.h"
 #include "servo.h"
+#include "beep.h"
 #include "IfxStm.h"
 #define IMAGE_OTSU_BLOCK_W      (188)  // 每个局部区域的宽度
 #define IMAGE_OTSU_BLOCK_H      (20)  // 每个局部区域的高度
@@ -603,7 +604,7 @@ void calculation_error(void)
     int16 l_pts = 0, r_pts = 0;
 
     // 可靠性判定：距离容差内 且 邻域至少 2 个点（弯道内侧只剩"一点"时视为不可靠，避免残段端点抖动）
-    #define TARGET_Y_TOL     (0.15f)
+    #define TARGET_Y_TOL     (0.08f)   // 收紧：弯道取点更贴近 target_y，防止两侧 y 差过大拉偏中点
     #define TARGET_Y_MIN_PTS (1)   // 改回 1：弯道外侧线为斜线，target_y 邻域点数常不足 2，门槛过高会误判丢线
     // 在左线找 y 最接近 target_y 的点，并统计容差邻域内的点数
     for (i = 0; i < rpts0s_num; i++)
@@ -621,8 +622,13 @@ void calculation_error(void)
     }
 
     uint8 l_ok = (l_idx >= 0 && l_min_d < TARGET_Y_TOL && l_pts >= TARGET_Y_MIN_PTS);
-    uint8 r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL && r_pts >= TARGET_Y_MIN_PTS);
-
+    uint8 r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL && r_pts >= TARGET_Y_MIN_PTS);
+    // 残端保护：边线在 target_y 前就已到头（取到点云末端）→ 视为丢线，防内线残端端点抖动
+    if (l_ok && l_idx >= rpts0s_num - 1) l_ok = 0;
+    if (r_ok && r_idx >= rpts1s_num - 1) r_ok = 0;
+    state_flags = 0;                       // 分支状态标志清零，各分支按需置位
+    if (l_ok) state_flags |= 0x01;
+    if (r_ok) state_flags |= 0x02;
     if (l_ok && r_ok)            // 双边都找到：同一 y 截面取中点，并更新实测半宽（带低通）
     {
         float new_half = fabsf(rpts1s[r_idx][0] - rpts0s[l_idx][0]) * 0.5f;
@@ -630,12 +636,14 @@ void calculation_error(void)
         if (rpts0s[l_idx][0] < rpts1s[r_idx][0]   // 硬保护：左线横坐标必须小于右线（防左右反/串线）
             && new_half >= 0.05f && new_half <= track_half_w * 3.0f && dir_diff < corner_mismatch_th)
         {
+            state_flags |= 0x04;                 // bit2=双边取中点（四重闸全过）
             // 宽度正常且两侧形态一致：取中点并更新实测半宽
             track_half_w = track_half_w * 0.7f + new_half * 0.3f;   // 半宽低通，防残端点污染
             mx = (rpts0s[l_idx][0] + rpts1s[r_idx][0]) / 2;
             my = (rpts0s[l_idx][1] + rpts1s[r_idx][1]) / 2;
         }
         else   // 过窄(串线)/过宽(折返)/两侧形态背离(闭合围住)：降级单边用实测半宽补中线，防前瞻点横跳
+        { state_flags |= 0x08; }              // bit3=双边但降级单边
         {
             if (l_min_d <= r_min_d) { mx = rpts0s[l_idx][0] + track_half_w; my = rpts0s[l_idx][1]; }
             else                    { mx = rpts1s[r_idx][0] - track_half_w; my = rpts1s[r_idx][1]; }
@@ -643,16 +651,19 @@ void calculation_error(void)
     }
     else if (l_ok)                     // 只有左线：中线 = 左线 + 实测半宽（向赛道中心补）
     {
+        state_flags |= 0x10;                 // bit4=仅左线单边补线
         mx = rpts0s[l_idx][0] + track_half_w;
         my = rpts0s[l_idx][1];
     }
     else if (r_ok)                     // 只有右线：中线 = 右线 - 实测半宽（向赛道中心补）
     {
+        state_flags |= 0x20;                 // bit5=仅右线单边补线
         mx = rpts1s[r_idx][0] - track_half_w;
         my = rpts1s[r_idx][1];
     }
     else                                     // 全丢：角度衰减回正
     {
+        state_flags |= 0x40;                 // bit6=全丢
         pure_angle *= 0.95f;   // 急弯内侧线短暂缺失时温和保持转向，避免频繁回正来回摆（出赛道保护兜底停车）
         image_error_filter = (int16)pure_angle;
         return;
@@ -677,10 +688,19 @@ void calculation_error(void)
         {
             turn /= a_cnt;                       // 正=右弯 负=左弯（弧度，图像坐标 y 向下）
             corner_turn = turn;                  // 调试显示
-            if (fabsf(turn) > corner_cut_th)     // 超过阈值才内切，直道不动
+            // 滞回：启动用 corner_cut_th，关闭用其一半，防弯道入口/出口 turn 抖动导致内切反复开关（抽一下）
             {
-                float cut = corner_cut_px / pixel_per_meter;   // 像素->米制
-                mx += (turn > 0.0f) ? (cut) : (-cut);          // 右弯向右偏，左弯向左偏（正=右弯）
+                static uint8 cut_active = 0;
+                float th_on  = corner_cut_th;
+                float th_off = corner_cut_th * 0.5f;
+                if (cut_active) { if (fabsf(turn) < th_off) cut_active = 0; }
+                else            { if (fabsf(turn) > th_on)  cut_active = 1; }
+                if (cut_active)
+                {
+                    state_flags |= 0x80;         // bit7=内切激活
+                    float cut = corner_cut_px / pixel_per_meter;   // 像素->米制
+                    mx += (turn > 0.0f) ? (cut) : (-cut);          // 右弯向右偏，左弯向左偏（正=右弯）
+                }
             }
         }
     }
@@ -698,6 +718,15 @@ void calculation_error(void)
         }
         mx_lim_ready = 1;
         last_mx_lim = mx;
+    }
+    // ===== 大弯道蜂鸣提示：turn 超过 corner_buz_th 边沿触发响一下 =====
+    {
+        static uint8 buz_prev = 0;
+        uint8 buz_now = (fabsf(corner_turn) > corner_buz_th) ? 1 : 0;
+        if (buz_now && !buz_prev) buzzer_tick = 8;   // 响约 8 帧（60~120fps 时约 70~130ms）
+        buz_prev = buz_now;
+        if (buzzer_tick > 0) { buzzer_tick--; beep_on(); }
+        else                 { beep_off(); }
     }
     //车头指向前瞻点的向量（y轴指向车，dy>0 表示目标在前方）
     dx = mx - cx;
