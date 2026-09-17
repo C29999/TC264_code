@@ -26,6 +26,7 @@ typedef struct image
 extern uint8 img_pers_data[PERS_H][PERS_W];     // 鸟瞰灰度图（逆透视输出）
 extern int16 touch_boundary0;   // 左巡线碰到图像边界（十字/环岛判据）
 extern int16 touch_boundary1;   // 右巡线碰到图像边界
+extern int16 maze_start_y;   // 迷宫法实际起始行（显示调试用）
 
 extern uint8 image_binary[MT9V03X_H][MT9V03X_W];
 extern int16 left_line_points[IPTS_MAX][2];

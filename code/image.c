@@ -26,6 +26,7 @@ uint8 img_pers_data[PERS_H][PERS_W];                    // 鸟瞰灰度图
 image_t img_pers = { (uint8 *)img_pers_data, PERS_W, PERS_H, PERS_W };
 int16 touch_boundary0 = 0;      // 左巡线碰到图像边界
 int16 touch_boundary1 = 0;      // 右巡线碰到图像边界
+int16 maze_start_y = 0;      // 迷宫法实际起始行（find_binary_start 定位，显示调试用）
 // 二值图中白色像素的判断阈值。
 #define EDGE_WHITE_THRESHOLD (128)
 #define BINARY_START_Y        (PERS_H - 3)   // 迷宫法起始行（改回原值）
@@ -570,6 +571,7 @@ void find_edges_binary(void)
     left_line_count = 0;
     right_line_count = 0;
     if (!find_binary_start(image_binary, &y, &left_x, &right_x)) return;
+    maze_start_y = y;   // 记录实际起始行（显示调试用）
 
     left_line_count = IPTS_MAX;
     right_line_count = IPTS_MAX;
@@ -624,10 +626,20 @@ void calculation_error(void)
     if (l_ok && r_ok)            // 双边都找到：同一 y 截面取中点，并更新实测半宽（带低通）
     {
         float new_half = fabsf(rpts1s[r_idx][0] - rpts0s[l_idx][0]) * 0.5f;
-        if (new_half >= 0.05f)
+        float dir_diff = fabsf(rpts0a[l_idx] - rpts1a[r_idx]);   // 两侧边线形态差（弧度），闭合/串线时背离
+        if (rpts0s[l_idx][0] < rpts1s[r_idx][0]   // 硬保护：左线横坐标必须小于右线（防左右反/串线）
+            && new_half >= 0.05f && new_half <= track_half_w * 3.0f && dir_diff < corner_mismatch_th)
+        {
+            // 宽度正常且两侧形态一致：取中点并更新实测半宽
             track_half_w = track_half_w * 0.7f + new_half * 0.3f;   // 半宽低通，防残端点污染
-        mx = (rpts0s[l_idx][0] + rpts1s[r_idx][0]) / 2;
-        my = (rpts0s[l_idx][1] + rpts1s[r_idx][1]) / 2;
+            mx = (rpts0s[l_idx][0] + rpts1s[r_idx][0]) / 2;
+            my = (rpts0s[l_idx][1] + rpts1s[r_idx][1]) / 2;
+        }
+        else   // 过窄(串线)/过宽(折返)/两侧形态背离(闭合围住)：降级单边用实测半宽补中线，防前瞻点横跳
+        {
+            if (l_min_d <= r_min_d) { mx = rpts0s[l_idx][0] + track_half_w; my = rpts0s[l_idx][1]; }
+            else                    { mx = rpts1s[r_idx][0] - track_half_w; my = rpts1s[r_idx][1]; }
+        }
     }
     else if (l_ok)                     // 只有左线：中线 = 左线 + 实测半宽（向赛道中心补）
     {
@@ -654,6 +666,38 @@ void calculation_error(void)
         else
             mx_lpf_ready = 1;
         last_mx = mx;
+    }
+    // ===== 弯道内切：前瞻点处两侧边线的局部转角判弯向，向弯道内侧平移中线 =====
+    {
+        float turn = 0.0f;
+        int16 a_cnt = 0;
+        if (l_ok && l_idx >= 0 && l_idx < rpts0a_num) { turn += rpts0a[l_idx]; a_cnt++; }
+        if (r_ok && r_idx >= 0 && r_idx < rpts1a_num) { turn += rpts1a[r_idx]; a_cnt++; }
+        if (a_cnt > 0)
+        {
+            turn /= a_cnt;                       // 正=右弯 负=左弯（弧度，图像坐标 y 向下）
+            corner_turn = turn;                  // 调试显示
+            if (fabsf(turn) > corner_cut_th)     // 超过阈值才内切，直道不动
+            {
+                float cut = corner_cut_px / pixel_per_meter;   // 像素->米制
+                mx += (turn > 0.0f) ? (cut) : (-cut);          // 右弯向右偏，左弯向左偏（正=右弯）
+            }
+        }
+    }
+    // 中线 x 帧间限幅：单帧最大变化 mx_rate_limit 米，降级切换/残端跳变被削成斜坡，防舵机抽搐
+    {
+        static uint8 mx_lim_ready = 0;
+        static float last_mx_lim = 0.0f;
+        float d;
+        if (mx_lim_ready)
+        {
+            d = mx - last_mx_lim;
+            if (d >  mx_rate_limit) d =  mx_rate_limit;
+            if (d < -mx_rate_limit) d = -mx_rate_limit;
+            mx = last_mx_lim + d;
+        }
+        mx_lim_ready = 1;
+        last_mx_lim = mx;
     }
     //车头指向前瞻点的向量（y轴指向车，dy>0 表示目标在前方）
     dx = mx - cx;
@@ -686,6 +730,7 @@ void calculation_error(void)
     }
     image_error_filter = (int16)pure_angle;
     mid = (int16)(mx * pixel_per_meter);   // 中线前瞻点 x 像素坐标
+    mid_y = (int16)(my * pixel_per_meter);   // 中线前瞻点 y 像素坐标（调试十字用）
 }
 //出赛道保护
 void track_protection(void)

@@ -307,7 +307,20 @@ void show_draw_edges(void)
             prev_y = y2;
         }
     }
-}
+
+
+    // 调试：前瞻点十字（蓝色）+ 迷宫法起始行横线（黄色）
+    {
+        uint16 px = edge_map_x(mid), py = edge_map_y(mid_y);
+        uint16 py0 = (py > 4) ? (py - 4) : 0;
+        ips200_draw_line(px - 4, py, px + 4, py, RGB565_BLUE);
+        ips200_draw_line(px, py0, px, py + 4, RGB565_BLUE);
+    }
+    if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
+    {
+        ips200_draw_line(edge_map_x(0), edge_map_y(maze_start_y),
+                         edge_map_x(MT9V03X_W - 1), edge_map_y(maze_start_y), RGB565_YELLOW);
+    }}
 void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
@@ -361,6 +374,9 @@ void display_draw(void)
         show_red_bold(108,128, show_buf, RGB565_YELLOW);
         sprintf(show_buf,"cL:%d cR:%d",Lpt0_found,Lpt1_found);
         show_red_bold(108,148, show_buf, RGB565_RED);
+        sprintf(show_buf,"turn:%+05.2f",(double)corner_turn);
+        show_red_bold(108,168, show_buf, RGB565_YELLOW);
+
     }
     else if(current_page == PAGE_TUNING)
     {
