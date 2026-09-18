@@ -1,7 +1,7 @@
 #include "display.h"
 #include "pid.h"
 #include "data.h"
-#include "isr.h"`
+#include "isr.h"
 
 //前向声明：这些static函数定义在display_draw()后面，ctc编译器必须先声明才能调用
 static void display_main_drow(void);
@@ -11,6 +11,7 @@ static void tuning_draw_edit(void);
 page_t current_page = PAGE_MAIN;
 uint8 main_select = 0;       // 0：常用 data，1：调参
 uint8 page_changed = 1;
+uint8 display_flog = 1;      // 1=屏幕刷新开 0=关（发车后关，停车恢复）
 char show_buf[21];
 #define BOLD_TEXT_MAX_LENGTH (20)
 #define BOLD_TEXT_BUFFER_WIDTH (BOLD_TEXT_MAX_LENGTH * 8 + 1)
@@ -325,6 +326,7 @@ void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
     // mt9v03x_finish_flag 在图像处理前会被清零，不能作为显示门控。
+    if (!display_flog) return;    // 发车后关闭屏幕刷新（省CPU），停车恢复
     ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
     // 鸟瞰图显示已删除（用户要求）
@@ -668,6 +670,7 @@ void key4_double_click_start(void)
                 total_distance_m = 0;
                 avg_speed = 0;
                 encoder_measure_flag = 1;
+                display_flog = 0;         // 发车：关闭屏幕刷新
                 key4_first = 0;
             }
             else

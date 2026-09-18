@@ -782,6 +782,7 @@ void track_protection(void)
         stop_outline_count = 0;
         stop_flog = 1;
         encoder_measure_flag = 0;   // 停车：结束测距，平均速度冻结
+        display_flog = 1;           // 停车：恢复屏幕显示
     }
 }
 //整数裁剪
