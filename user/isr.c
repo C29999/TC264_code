@@ -63,6 +63,17 @@ IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH0);
     angle = quadradic_pid_solve(&servo_pid, pure_angle);
+    // 误差绝对值 > 6 时舵机直接打死（立即打满 ±SMOTOR_LIMIT，不走低通）
+    if (image_error_filter > 6)
+    {
+        servo_set( SMOTOR_LIMIT);
+        return;
+    }
+    if (image_error_filter < -6)
+    {
+        servo_set(-SMOTOR_LIMIT);
+        return;
+    }
     // 舵机输出低通滤波，抑制抖动
     {
         static float angle_lpf = 0;

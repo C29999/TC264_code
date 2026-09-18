@@ -327,7 +327,8 @@ void display_draw(void)
     // mt9v03x_finish_flag 在图像处理前会被清零，不能作为显示门控。
     ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
-    ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
+    // 鸟瞰图显示已删除（用户要求）
+    // ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
     show_draw_edges();
 
     if(current_page == PAGE_MAIN)

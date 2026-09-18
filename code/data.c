@@ -20,22 +20,22 @@ int16 base_speed=0;       //鍩虹閫熷害鐩爣(缂栫爜鍣ㄨ鏁�
 int16 dif_val=0;        //鏂瑰悜涓幆杈撳嚭鐨勫樊閫熼噺
 
 //                kp    kp2    ki   kd   low_pass  p_max  i_max  d_max  kgyro
-pid_param_t servo_pid = PID_CREATE(2.1,  0.05,  0,  2.0,  0.3, 14.5,   0,    8.0,  -0.03);
+pid_param_t servo_pid = PID_CREATE(1.2,  0.05,  0,  6.8,  0.3, 14.5,   0,    8.0,  -0.03);
 pid_param_t motor_pid_l = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_r = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_l_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
 pid_param_t motor_pid_r_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
 
-int16 straight_speed      = -280;
-int16 long_straight_speed = -280;
-int16 corner_speed        = -220;   // 弯道基础速度（-90→-100，弯道整体加快一点）
-float corner_speed_slope  = 0.01f;   // 弯道减速斜率（越大减速越快，0.04≈温和 0.06≈激进）
+int16 straight_speed      = -360;
+int16 long_straight_speed = -360;
+int16 corner_speed        = -290;   // 弯道基础速度（-90→-100，弯道整体加快一点）
+float corner_speed_slope  = 0.015f;   // 弯道减速斜率（越大减速越快，0.04≈温和 0.06≈激进）
 
 float pure_angle = 0;        // 纯转角度（弧度），0=直道
 float pure_rad   = 0;        // 纯转角度（弧度），0=直道
 float aim_distance = 0.5;    // 目标距离（单位：米）
 float angle = 0;             // 目标角度（弧度），0=直道
-float turn_diff = 5.2f;       // 差速比（内轮减速比例 0~1，越大差速越强，0.9≈强）
+float turn_diff = 2.4f;       // 差速比（内轮减速比例 0~1，越大差速越强，0.9≈强）
 float turn_diff_outer = 0;   // 外轮加速比例（相对内轮减速量：0=不加速 0.5=一半 1=同量，越大差速越强）
 float corner_cut_px = 0.0f;   // 弯道内切偏移量（像素），0=不内切
 float corner_cut_th  = 0.15f;   // 弯道判定阈值（弧度），直道转角小于此不内切
