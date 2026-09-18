@@ -69,23 +69,6 @@ extern float rpts0an[POINTS_MAX_LEN];   // L4 NMS后角度
 extern float rpts1an[POINTS_MAX_LEN];
 extern int16  rpts0an_num, rpts1an_num;
 
-/* ================ 角点结果 ================ */
-extern int16 Lpt0_rpts0s_id, Lpt1_rpts1s_id;
-extern int16 N_Lpt0_rpts0s_id, N_Lpt1_rpts1s_id;
-extern int16 Lpt0_found, Lpt1_found;
-extern int16 N_Lpt0_found, N_Lpt1_found;
-
-/* ================ 远端角点 ================ */
-extern int16 far_Lpt0_rpts0s_id, far_Lpt1_rpts0s_id;
-extern int16 far_Lpt0_found, far_Lpt1_found;
-extern float far_rpts0s[POINTS_MAX_LEN][2];
-extern float far_rpts1s[POINTS_MAX_LEN][2];
-extern int16  far_rpts0s_num, far_rpts1s_num;
-
-/* ================ 直线度 + 置信度 ================ */
-extern int16 is_straight0, is_straight1;
-extern float conf1, conf2, conf1_max, conf2_max;
-
 #define IMG_ANGLE_TO_RAD(deg) (deg)*3.1415926f/180.0f
 
 //点云处理函数

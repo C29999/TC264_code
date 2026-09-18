@@ -83,7 +83,7 @@ void core1_main(void)
         {
             mt9v03x_finish_flag=0;
             fps_count++;
-            image_threshold(mt9v03x_image); // 1.原图大津二值化
+            image_threshold_block(mt9v03x_image); // 1.局部分块大津二值化（远端单独算阈值，防黑线断裂）
             find_edges_binary();            // 2.原图二值图迷宫法巡线
             process_edge_points();          // 3.边线点云处理
             calculation_error();            // 4.中线偏差

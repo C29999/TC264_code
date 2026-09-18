@@ -220,47 +220,50 @@ void show_center(const char *text)
     show_red_bold(x, y, text, RGB565_PINK);
 }
 //边线坐标→缩略图屏幕坐标映射（带截断，防单边补线时越界画花屏幕）
-static uint16 edge_map_x(int16 x)
+// x0:显示区域左边界  w:区域宽度（188像素图宽缩放显示到 w 像素）
+static uint16 edge_map_x2(int16 x, uint16 x0, uint16 w)
 {
     if (x < 0)   x = 0;
     if (x > 187) x = 187;
-    return 127 + (uint16)(x * 110 / 188);
+    return x0 + (uint16)(x * w / 188);
 }
-static uint16 edge_map_y(int16 y)
+static uint16 edge_map_y2(int16 y)
 {
     if (y < 0)   y = 0;
     if (y > 119) y = 119;
     return (uint16)(y * 80 / 120);
 }
-void show_draw_edges(void)
+// 在指定区域画边线/中线/前瞻十字等调试信息（x0=区域左边界, w=区域宽度）
+static void draw_edges_at(uint16 x0, uint16 w)
 {
-    const uint16 by = 0;       // 右上角原图显示区域原点 y
+    const uint16 by = 0;       // 显示区域原点 y
+    const uint16 edge_x_max = x0 + w - 1;   // 区域右边界（画线限幅用）
     uint16 i;
 
-    // 图像中心竖线：黄色，画在二值图上（无论有没有边线都显示）
-    ips200_draw_line(edge_map_x(image_center), by,
-                     edge_map_x(image_center), by + 80,
+    // 图像中心竖线：黄色（无论有没有边线都显示）
+    ips200_draw_line(edge_map_x2(image_center, x0, w), by,
+                     edge_map_x2(image_center, x0, w), by + 80,
                      RGB565_YELLOW);
 
     if (left_line_count == 0 && right_line_count == 0)
     {
-        show_red_bold(146, 32, "NO POINTS", RGB565_PINK);
+        show_red_bold(x0 + 19, 32, "NO POINTS", RGB565_PINK);
         return;
     }
 
     // 左边线：蓝色
     for(i=1;i<left_line_count;i++)
     {
-        ips200_draw_line(edge_map_x(left_line_points[i-1][0]), edge_map_y(left_line_points[i-1][1]),
-                         edge_map_x(left_line_points[i][0]),   edge_map_y(left_line_points[i][1]),
+        ips200_draw_line(edge_map_x2(left_line_points[i-1][0], x0, w), edge_map_y2(left_line_points[i-1][1]),
+                         edge_map_x2(left_line_points[i][0], x0, w),   edge_map_y2(left_line_points[i][1]),
                          RGB565_BLUE);
     }
 
     // 右边线：红色
     for(i=1;i<right_line_count;i++)
     {
-        ips200_draw_line(edge_map_x(right_line_points[i-1][0]), edge_map_y(right_line_points[i-1][1]),
-                         edge_map_x(right_line_points[i][0]),   edge_map_y(right_line_points[i][1]),
+        ips200_draw_line(edge_map_x2(right_line_points[i-1][0], x0, w), edge_map_y2(right_line_points[i-1][1]),
+                         edge_map_x2(right_line_points[i][0], x0, w),   edge_map_y2(right_line_points[i][1]),
                          RGB565_RED);
     }
 
@@ -302,8 +305,8 @@ void show_draw_edges(void)
             else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
 
             if (prev_x >= 0)
-                ips200_draw_line(edge_map_x(prev_x), edge_map_y(prev_y),
-                                 edge_map_x(mx), edge_map_y(y2), RGB565_GREEN);
+                ips200_draw_line(edge_map_x2(prev_x, x0, w), edge_map_y2(prev_y),
+                                 edge_map_x2(mx, x0, w), edge_map_y2(y2), RGB565_GREEN);
             prev_x = mx;
             prev_y = y2;
         }
@@ -312,16 +315,25 @@ void show_draw_edges(void)
 
     // 调试：前瞻点十字（蓝色）+ 迷宫法起始行横线（黄色）
     {
-        uint16 px = edge_map_x(mid), py = edge_map_y(mid_y);
+        uint16 px = edge_map_x2(mid, x0, w), py = edge_map_y2(mid_y);
         uint16 py0 = (py > 4) ? (py - 4) : 0;
-        ips200_draw_line(px - 4, py, px + 4, py, RGB565_BLUE);
-        ips200_draw_line(px, py0, px, py + 4, RGB565_BLUE);
+        uint16 py1 = (py < 76) ? (py + 4) : 79;   // 竖线终点限幅
+        uint16 px0 = (px > 4) ? (px - 4) : x0;    // 横线起点限幅(防下溢)
+        uint16 px1 = (px + 4 < edge_x_max) ? (px + 4) : edge_x_max; // 横线终点限幅(防x2越界断言)
+        ips200_draw_line(px0, py, px1, py, RGB565_BLUE);
+        ips200_draw_line(px, py0, px, py1, RGB565_BLUE);
     }
     if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
     {
-        ips200_draw_line(edge_map_x(0), edge_map_y(maze_start_y),
-                         edge_map_x(MT9V03X_W - 1), edge_map_y(maze_start_y), RGB565_YELLOW);
-    }}
+        ips200_draw_line(edge_map_x2(0, x0, w), edge_map_y2(maze_start_y),
+                         edge_map_x2(MT9V03X_W - 1, x0, w), edge_map_y2(maze_start_y), RGB565_YELLOW);
+    }
+}
+
+// 二值图（右上角 127,0 110x80）画调试信息
+void show_draw_edges(void)      { draw_edges_at(127, 110); }
+// 灰度图（左上角 0,0 126x80）也画同样的调试信息
+void show_draw_edges_gray(void) { draw_edges_at(0, 126); }
 void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
@@ -331,6 +343,7 @@ void display_draw(void)
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
     // 鸟瞰图显示已删除（用户要求）
     // ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
+    show_draw_edges_gray();      // 灰度图也画调试信息（边线/中线/十字）
     show_draw_edges();
 
     if(current_page == PAGE_MAIN)
@@ -379,8 +392,10 @@ void display_draw(void)
         show_red_bold(108,148, show_buf, RGB565_RED);
         sprintf(show_buf,"turn:%+05.2f",(double)corner_turn);
         show_red_bold(108,168, show_buf, RGB565_YELLOW);
-        sprintf(show_buf,"dist:%05.2fm avg:%04.2f",(double)total_distance_m,(double)avg_speed);
+        sprintf(show_buf,"dist:%05.2fm",(double)total_distance_m);
         show_red_bold(108,208, show_buf, RGB565_PINK);
+        sprintf(show_buf,"avg:%04.2fm/s",(double)avg_speed);
+        show_red_bold(108,228, show_buf, RGB565_PINK);
         sprintf(show_buf,"ST:%d%d%d%d%d%d%d%d",(state_flags&0x80)?1:0,(state_flags&0x40)?1:0,(state_flags&0x20)?1:0,(state_flags&0x10)?1:0,(state_flags&0x08)?1:0,(state_flags&0x04)?1:0,(state_flags&0x02)?1:0,(state_flags&0x01)?1:0);
         show_red_bold(108,188, show_buf, RGB565_CYAN);
 

@@ -4,7 +4,7 @@
 #include "beep.h"
 #include "IfxStm.h"
 #define IMAGE_OTSU_BLOCK_W      (188)  // 每个局部区域的宽度
-#define IMAGE_OTSU_BLOCK_H      (20)  // 每个局部区域的高度
+#define IMAGE_OTSU_BLOCK_H      (10)  // 每个局部区域的高度（缩小让远端细黑线单独算阈值）
 
 #define IMAGE_OTSU_BLOCK_COLS \
     ((MT9V03X_W + IMAGE_OTSU_BLOCK_W - 1) / IMAGE_OTSU_BLOCK_W) // 横向区域数量
@@ -33,6 +33,15 @@ int16 maze_start_y = 0;      // 迷宫法实际起始行（find_binary_start 定
 #define BINARY_START_Y        (PERS_H - 3)   // 迷宫法起始行（改回原值）
 #define BINARY_START_OFFSET   (8)
 #define BINARY_START_SEARCH_H (12)
+
+/* ================ 国一边爬线边自适应阈值（灰度图直接爬线） ================ */
+#define ADAPT_THRES       (75)              // 起点检测固定阈值：灰度<此值=黑线
+#define ADAPT_BLOCK       (5)               // 自适应局部块大小（奇数，块内均值-裁剪量=局部阈值）
+#define ADAPT_CLIP        (7)               // 局部均值裁剪量
+#define ADAPT_BEGIN_X     (4)               // 起点距图像中心偏移
+#define ADAPT_BEGIN_Y     (MT9V03X_H - 14)  // 起点起始行（近端）
+#define ADAPT_BEGIN_Y_FAR (MT9V03X_H - 60)  // 起点最远行
+#define ADAPT_CUT_BOND    (3)               // 起点搜索左右边界限幅
 
 // 当前方向的正前方坐标变化表。
 // 0表示向上，1表示向右，2表示向下，3表示向左。
@@ -432,8 +441,23 @@ static void findline_lefthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x
 
     points[0][0] = x;
     points[0][1] = y;
+    uint16 lost = 0;   // 连续无黑邻域计数（断线防串线）
+    int16 x_limit = PERS_W / 2 + TRACK_HALF_W;   // 左线绝对上限：图像中线+半宽（正常透视/弯道不超，真串线到右线区域才拦）
     while (step < max_points - 1 && x > 0 && y > 0 && x < PERS_W - 1 && y < PERS_H - 1 && turn < 4)
     {
+        // 硬限幅：左线越过中线+半宽=串到右线区域，立即停止
+        if (x > x_limit) break;
+        // 防串线：当前位置3x3邻域无黑像素=线已断，连续12步停止爬线（小断点不误停，真断线仍拦）
+        {
+            int16 nx, ny; uint8 has_black = 0;
+            for (ny = y - 1; ny <= y + 1 && !has_black; ny++)
+                for (nx = x - 1; nx <= x + 1; nx++)
+                    if (nx >= 0 && nx < PERS_W && ny >= 0 && ny < PERS_H
+                        && binary[ny][nx] < EDGE_WHITE_THRESHOLD)
+                    { has_black = 1; break; }
+            if (has_black) lost = 0;
+            else { lost++; if (lost > 12) break; }
+        }
         int16 fx = x + edge_dir_front[dir][0];
         int16 fy = y + edge_dir_front[dir][1];
         int16 flx = x + edge_dir_frontleft[dir][0];
@@ -488,8 +512,23 @@ static void findline_righthand_binary(const uint8 binary[PERS_H][PERS_W], int16 
 
     points[0][0] = x;
     points[0][1] = y;
+    uint16 lost = 0;   // 连续无黑邻域计数（断线防串线）
+    int16 x_limit = PERS_W / 2 - TRACK_HALF_W;   // 右线绝对下限：图像中线-半宽（正常透视/弯道不超，真串线到左线区域才拦）
     while (step < max_points - 1 && x > 0 && y > 0 && x < PERS_W - 1 && y < PERS_H - 1 && turn < 4)
     {
+        // 硬限幅：右线越过中线-半宽=串到左线区域，立即停止
+        if (x < x_limit) break;
+        // 防串线：当前位置3x3邻域无黑像素=线已断，连续12步停止爬线（小断点不误停，真断线仍拦）
+        {
+            int16 nx, ny; uint8 has_black = 0;
+            for (ny = y - 1; ny <= y + 1 && !has_black; ny++)
+                for (nx = x - 1; nx <= x + 1; nx++)
+                    if (nx >= 0 && nx < PERS_W && ny >= 0 && ny < PERS_H
+                        && binary[ny][nx] < EDGE_WHITE_THRESHOLD)
+                    { has_black = 1; break; }
+            if (has_black) lost = 0;
+            else { lost++; if (lost > 12) break; }
+        }
         int16 fx = x + edge_dir_front[dir][0];
         int16 fy = y + edge_dir_front[dir][1];
         int16 frx = x + edge_dir_frontright[dir][0];
@@ -561,23 +600,197 @@ static uint8 find_binary_start(const uint8 binary[PERS_H][PERS_W], int16 *y, int
     return 0;
 }
 
+// ================ 国一边爬线边自适应阈值：灰度图直接爬线（替代大津二值化+二值图手扶墙） ================
+// 左边线起点：从 begin_y 向上扫，每行从 中心-begin_x 向左找第一个"左侧为黑"的点
+static uint8 find_start_left(int16 *px, int16 *py)
+{
+    int16 yy, xx;
+    for (yy = ADAPT_BEGIN_Y; yy > ADAPT_BEGIN_Y_FAR; yy--)
+    {
+        for (xx = MT9V03X_W / 2 - ADAPT_BEGIN_X; xx > ADAPT_CUT_BOND; xx--)
+        {
+            if (mt9v03x_image[yy][xx - 1] < ADAPT_THRES)
+            {
+                *px = xx;
+                *py = yy;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+// 右边线起点：从 中心+begin_x 向右找第一个"右侧为黑"的点
+static uint8 find_start_right(int16 *px, int16 *py)
+{
+    int16 yy, xx;
+    for (yy = ADAPT_BEGIN_Y; yy > ADAPT_BEGIN_Y_FAR; yy--)
+    {
+        for (xx = MT9V03X_W / 2 + ADAPT_BEGIN_X; xx < MT9V03X_W - 1 - ADAPT_CUT_BOND; xx++)
+        {
+            if (mt9v03x_image[yy][xx + 1] < ADAPT_THRES)
+            {
+                *px = xx;
+                *py = yy;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+// 左边线：手扶左墙爬线，每步局部 5x5 块均值-裁剪量 作动态阈值判黑（国一 findline_lefthand_adaptive 移植）
+static void findline_lefthand_adaptive(int16 x, int16 y, int16 pts[][2], uint16 *num)
+{
+    uint16 max_points = *num;
+    int16 half = ADAPT_BLOCK / 2;
+    int16 step = 0, dir = 0, turn = 0;
+    uint16 lost = 0;   // 断线防串线计数
+    int16 x_limit = MT9V03X_W / 2 + TRACK_HALF_W;   // 左线绝对上限（不越中线+半宽）
+    while (step < max_points && half < x && half < y && x < MT9V03X_W - half - 1 && y < MT9V03X_H - half - 1 && turn < 4)
+    {
+        if (x > x_limit) break;   // 串到右线区域立即停
+        // 局部自适应阈值：block 块均值 - clip
+        int16 local_thres = 0;
+        for (int16 dy = -half; dy <= half; dy++)
+            for (int16 dx = -half; dx <= half; dx++)
+                local_thres += mt9v03x_image[y + dy][x + dx];
+        local_thres /= ADAPT_BLOCK * ADAPT_BLOCK;
+        local_thres -= ADAPT_CLIP;
+        // 断线防串线：3x3 邻域连续 12 步无黑（灰度<局部阈值）即停
+        {
+            int16 nx, ny; uint8 has_black = 0;
+            for (ny = y - 1; ny <= y + 1 && !has_black; ny++)
+                for (nx = x - 1; nx <= x + 1; nx++)
+                    if (nx >= 0 && nx < MT9V03X_W && ny >= 0 && ny < MT9V03X_H
+                        && mt9v03x_image[ny][nx] < local_thres)
+                    { has_black = 1; break; }
+            if (has_black) lost = 0;
+            else { lost++; if (lost > 12) break; }
+        }
+        int16 front_value = mt9v03x_image[y + edge_dir_front[dir][1]][x + edge_dir_front[dir][0]];
+        int16 frontleft_value = mt9v03x_image[y + edge_dir_frontleft[dir][1]][x + edge_dir_frontleft[dir][0]];
+        if ((x == 1 && y < MT9V03X_H - 20) || x == MT9V03X_W - 2 || y == 1)
+        {
+            touch_boundary0 = 1;   // 触到左/上边界（环岛/十字等特征信号）
+            break;
+        }
+        if (front_value < local_thres)
+        {
+            dir = (dir + 1) % 4;
+            turn++;
+        }
+        else if (frontleft_value < local_thres)
+        {
+            x += edge_dir_front[dir][0];
+            y += edge_dir_front[dir][1];
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
+        }
+        else
+        {
+            x += edge_dir_frontleft[dir][0];
+            y += edge_dir_frontleft[dir][1];
+            dir = (dir + 3) % 4;
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
+        }
+    }
+    *num = step;
+}
+// 右边线：手扶右墙爬线（对称）
+static void findline_righthand_adaptive(int16 x, int16 y, int16 pts[][2], uint16 *num)
+{
+    uint16 max_points = *num;
+    int16 half = ADAPT_BLOCK / 2;
+    int16 step = 0, dir = 0, turn = 0;
+    uint16 lost = 0;
+    int16 x_limit = MT9V03X_W / 2 - TRACK_HALF_W;   // 右线绝对下限（不越中线-半宽）
+    while (step < max_points && 0 < x && half < y && x < MT9V03X_W - 3 && y < MT9V03X_H - 1 && turn < 4)
+    {
+        if (x < x_limit) break;   // 串到左线区域立即停
+        int16 local_thres = 0;
+        for (int16 dy = -half; dy <= half; dy++)
+            for (int16 dx = -half; dx <= half; dx++)
+                local_thres += mt9v03x_image[y + dy][x + dx];
+        local_thres /= ADAPT_BLOCK * ADAPT_BLOCK;
+        local_thres -= ADAPT_CLIP;
+        {
+            int16 nx, ny; uint8 has_black = 0;
+            for (ny = y - 1; ny <= y + 1 && !has_black; ny++)
+                for (nx = x - 1; nx <= x + 1; nx++)
+                    if (nx >= 0 && nx < MT9V03X_W && ny >= 0 && ny < MT9V03X_H
+                        && mt9v03x_image[ny][nx] < local_thres)
+                    { has_black = 1; break; }
+            if (has_black) lost = 0;
+            else { lost++; if (lost > 12) break; }
+        }
+        int16 front_value = mt9v03x_image[y + edge_dir_front[dir][1]][x + edge_dir_front[dir][0]];
+        int16 frontright_value = mt9v03x_image[y + edge_dir_frontright[dir][1]][x + edge_dir_frontright[dir][0]];
+        if ((x == MT9V03X_W - 2 && y < MT9V03X_H - 20) || x == 1 || y == 1)
+        {
+            touch_boundary1 = 1;   // 触到右/上边界
+            break;
+        }
+        if (front_value < local_thres)
+        {
+            dir = (dir + 3) % 4;
+            turn++;
+        }
+        else if (frontright_value < local_thres)
+        {
+            x += edge_dir_front[dir][0];
+            y += edge_dir_front[dir][1];
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
+        }
+        else
+        {
+            x += edge_dir_frontright[dir][0];
+            y += edge_dir_frontright[dir][1];
+            dir = (dir + 1) % 4;
+            pts[step][0] = x;
+            pts[step][1] = y;
+            step++;
+            turn = 0;
+        }
+    }
+    *num = step;
+}
+
 void find_edges_binary(void)
 {
-    int16 left_x;
-    int16 right_x;
-    int16 y = PERS_H - 3;   // 起始行初值，与 BINARY_START_Y 一致（find_binary_start 内会被覆盖）
+    int16 left_x, right_x, y;
 
     touch_boundary0 = 0;
     touch_boundary1 = 0;
     left_line_count = 0;
     right_line_count = 0;
-    if (!find_binary_start(image_binary, &y, &left_x, &right_x)) return;
-    maze_start_y = y;   // 记录实际起始行（显示调试用）
+    maze_start_y = 0;
 
-    left_line_count = IPTS_MAX;
-    right_line_count = IPTS_MAX;
-    findline_lefthand_binary(image_binary, left_x, y, left_line_points, &left_line_count);
-    findline_righthand_binary(image_binary, right_x, y, right_line_points, &right_line_count);
+    // 左边线：灰度图起点扫描 + 自适应爬线
+    if (find_start_left(&left_x, &y))
+    {
+        maze_start_y = y;   // 记录实际起始行（显示调试用）
+        if (mt9v03x_image[y][left_x] >= ADAPT_THRES)   // 起点本身白（黑线右缘外侧）
+        {
+            left_line_count = IPTS_MAX;
+            findline_lefthand_adaptive(left_x, y, left_line_points, &left_line_count);
+        }
+    }
+    // 右边线
+    if (find_start_right(&right_x, &y))
+    {
+        if (mt9v03x_image[y][right_x] >= ADAPT_THRES)   // 起点本身白（黑线左缘外侧）
+        {
+            right_line_count = IPTS_MAX;
+            findline_righthand_adaptive(right_x, y, right_line_points, &right_line_count);
+        }
+    }
 }
 /**
  * 前瞻角误差计算
@@ -622,7 +835,8 @@ void calculation_error(void)
     }
 
     uint8 l_ok = (l_idx >= 0 && l_min_d < TARGET_Y_TOL && l_pts >= TARGET_Y_MIN_PTS);
-    uint8 r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL && r_pts >= TARGET_Y_MIN_PTS);
+    uint8 r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL && r_pts >= TARGET_Y_MIN_PTS);
+
     // 残端保护：边线在 target_y 前就已到头（取到点云末端）→ 视为丢线，防内线残端端点抖动
     if (l_ok && l_idx >= rpts0s_num - 1) l_ok = 0;
     if (r_ok && r_idx >= rpts1s_num - 1) r_ok = 0;
@@ -632,9 +846,30 @@ void calculation_error(void)
     if (l_ok && r_ok)            // 双边都找到：同一 y 截面取中点，并更新实测半宽（带低通）
     {
         float new_half = fabsf(rpts1s[r_idx][0] - rpts0s[l_idx][0]) * 0.5f;
-        float dir_diff = fabsf(rpts0a[l_idx] - rpts1a[r_idx]);   // 两侧边线形态差（弧度），闭合/串线时背离
-        if (rpts0s[l_idx][0] < rpts1s[r_idx][0]   // 硬保护：左线横坐标必须小于右线（防左右反/串线）
-            && new_half >= 0.05f && new_half <= track_half_w * 3.0f && dir_diff < corner_mismatch_th)
+    // 两侧边线形态差（弧度）：邻域±2点均值后取差。闭合/串线时整段背离仍超阈值；
+    // 直道单点噪点角度被平均稀释，不再逐帧误触发降级（bit2<->bit3横跳）
+    float dir_diff = 0.0f;
+    {
+        float ang0 = 0.0f, ang1 = 0.0f; int16 c0 = 0, c1 = 0, k;
+        for (k = -2; k <= 2; k++)
+        {
+            int16 i0 = l_idx + k, i1 = r_idx + k;
+            if (i0 >= 0 && i0 < rpts0a_num) { ang0 += rpts0a[i0]; c0++; }
+            if (i1 >= 0 && i1 < rpts1a_num) { ang1 += rpts1a[i1]; c1++; }
+        }
+        dir_diff = fabsf((c0 ? ang0 / c0 : 0.0f) - (c1 ? ang1 / c1 : 0.0f));
+    }
+        uint8 gate_pass = (rpts0s[l_idx][0] < rpts1s[r_idx][0]   // 硬保护：左线横坐标必须小于右线（防左右反/串线）
+            && new_half >= 0.05f && new_half <= track_half_w * 3.0f && dir_diff < corner_mismatch_th);
+        // 帧间滞回：bit2/bit3 切换需连续 2 帧确认，防止串线/残端导致逐帧横跳
+        {
+            static uint8 last_gate = 1;        // 上一帧四重闸结果，初值=通过
+            static uint8 gate_cnt = 0;         // 连续不一致计数
+            if (gate_pass != last_gate) { gate_cnt++; if (gate_cnt >= 2) { last_gate = gate_pass; gate_cnt = 0; } }
+            else gate_cnt = 0;
+            gate_pass = last_gate;             // 用滞回后的结果
+        }
+        if (gate_pass)
         {
             state_flags |= 0x04;                 // bit2=双边取中点（四重闸全过）
             // 宽度正常且两侧形态一致：取中点并更新实测半宽
@@ -645,8 +880,14 @@ void calculation_error(void)
         else   // 过窄(串线)/过宽(折返)/两侧形态背离(闭合围住)：降级单边用实测半宽补中线，防前瞻点横跳
         { state_flags |= 0x08; }              // bit3=双边但降级单边
         {
-            if (l_min_d <= r_min_d) { mx = rpts0s[l_idx][0] + track_half_w; my = rpts0s[l_idx][1]; }
-            else                    { mx = rpts1s[r_idx][0] - track_half_w; my = rpts1s[r_idx][1]; }
+            // 选侧滞回：锁上一帧所选侧，对侧需显著更近(0.03m)才换边，防直道两侧y差抖动导致mx横跳
+            static uint8 last_side = 0;   // 0=左线补 1=右线补
+            int16 use_left;
+            if (last_side == 0) use_left = (l_min_d <= r_min_d + 0.03f);
+            else                use_left = (l_min_d + 0.03f <= r_min_d);
+            last_side = (uint8)use_left;
+            if (use_left) { mx = rpts0s[l_idx][0] + track_half_w; my = rpts0s[l_idx][1]; }
+            else          { mx = rpts1s[r_idx][0] - track_half_w; my = rpts1s[r_idx][1]; }
         }
     }
     else if (l_ok)                     // 只有左线：中线 = 左线 + 实测半宽（向赛道中心补）
@@ -806,24 +1047,6 @@ int16 rpts0a_num = 0, rpts1a_num = 0;             // L3 实际点数
 float rpts0an[POINTS_MAX_LEN];    float rpts1an[POINTS_MAX_LEN];
 int16 rpts0an_num = 0, rpts1an_num = 0;           // L4 实际点数
 
-/* 近端 L 角点（正峰）：在 rpts0s/rpts1s 中的索引 + 找到标志 */
-int16 Lpt0_rpts0s_id = 0, Lpt1_rpts1s_id = 0;     // 左/右 L 角点索引
-int16 N_Lpt0_rpts0s_id = 0, N_Lpt1_rpts1s_id = 0; // 左/右 反L角点索引（负峰）
-int16 Lpt0_found = 0, Lpt1_found = 0;             // 1=找到 L 角点
-int16 N_Lpt0_found = 0, N_Lpt1_found = 0;         // 1=找到 反L 角点
-
-/* 远端 L 角点（十字判据用：两个入口角点之间的垂直距离校验） */
-int16 far_Lpt0_rpts0s_id = 0, far_Lpt1_rpts1s_id = 0; // 远端角点索引
-int16 far_Lpt0_found = 0, far_Lpt1_found = 0;     // 1=找到远端角点
-
-/* 远端边线段（十字内部导航时切到远端边线算偏差） */
-float far_rpts0s[POINTS_MAX_LEN][2]; float far_rpts1s[POINTS_MAX_LEN][2];
-int16 far_rpts0s_num = 0, far_rpts1s_num = 0;     // 远端边线实际点数
-
-/* 直线度 + 置信度（用于区分直道/弯道/十字） */
-int16 is_straight0 = 0, is_straight1 = 0;         // 1=该边线近似直线
-float conf1 = 0, conf2 = 0;                       // 当前帧角度峰值
-float conf1_max = 0, conf2_max = 0;               // 最近端最大角度峰值
 int16 clip(int16 x,int16 low,int16 up)
 {
     if(x>up) return up;

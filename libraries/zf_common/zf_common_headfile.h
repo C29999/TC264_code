@@ -128,6 +128,7 @@
 #include "lvgl_demo.h"
 #include "motor.h"
 #include "servo.h"
+#include "element.h"
 #include "pid.h"
 #include "imu.h"
 //=====================================================�û���======================================================
