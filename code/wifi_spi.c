@@ -1,4 +1,5 @@
 #include "wifi_spi.h"
+#include "camera_param.h"
 
 #include "math.h"
 #include <stdio.h>
@@ -50,7 +51,7 @@ void my_wifi_spi_init(void)
         show_center("WIFI SPI Success");
         system_delay_ms(500);
     }
-    if (wifi_spi_wifi_connect("JCDBK", "12345678") == 0)
+    if (wifi_spi_wifi_connect("C511", "c510c510") == 0)
         {
             show_center("WIFI Connected Success");
             system_delay_ms(500); 
@@ -62,7 +63,7 @@ void my_wifi_spi_init(void)
             return;
         }
     system_delay_ms(200);
-    if (wifi_spi_socket_connect("TCP", "192.168.146.248", "8080", "6060") != 0)
+    if (wifi_spi_socket_connect("TCP", "192.168.0.111", "8080", "6060") != 0)
     {
         show_center("TCP Connecting fail");
         system_delay_ms(500);
@@ -88,7 +89,7 @@ void wifi_image_send(void)
     if (!camera_configured)
     {
         seekfree_assistant_camera_config(&camera_obj,
-            SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, mt9v03x_image);
+            SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, img_pers_data);
         camera_configured = 1;
     }
     seekfree_assistant_camera_send(&camera_obj);
@@ -97,6 +98,11 @@ void wifi_boundary_send(void)
 {
     static seekfree_assistant_camera_boundary_struct boundary_l_obj;
     static seekfree_assistant_camera_boundary_struct boundary_r_obj;
+    static seekfree_assistant_camera_boundary_struct center_obj;
+    static int16 mapped_left[IPTS_MAX][2];
+    static int16 mapped_right[IPTS_MAX][2];
+    static int16 mapped_center[POINTS_MAX_LEN][2];
+    uint16 i;
     if (!wifi_send_ready || !wifi_flag)
     {
         return;
@@ -104,18 +110,44 @@ void wifi_boundary_send(void)
     /* 左边线：红色 */
     if (left_line_count > 0)
     {
+        for (i = 0; i < left_line_count; i++)
+        {
+            int16 x = left_line_points[i][0], y = left_line_points[i][1];
+            mapped_left[i][0] = (x >= 0 && x < PERS_W && y >= 0 && y < PERS_H) ? invx[y][x] : -1;
+            mapped_left[i][1] = (x >= 0 && x < PERS_W && y >= 0 && y < PERS_H) ? invy[y][x] : -1;
+        }
         seekfree_assistant_camera_boundary_config(&boundary_l_obj,
             SEEKFREE_ASSISTANT_DATA_TYPE_UINT16, 0xF800,
-            (uint16)left_line_count, left_line_points);
+            (uint16)left_line_count, mapped_left);
         seekfree_assistant_camera_boundary_send(&boundary_l_obj);
     }
     /* 右边线：蓝色 */
     if (right_line_count > 0)
     {
+        for (i = 0; i < right_line_count; i++)
+        {
+            int16 x = right_line_points[i][0], y = right_line_points[i][1];
+            mapped_right[i][0] = (x >= 0 && x < PERS_W && y >= 0 && y < PERS_H) ? invx[y][x] : -1;
+            mapped_right[i][1] = (x >= 0 && x < PERS_W && y >= 0 && y < PERS_H) ? invy[y][x] : -1;
+        }
         seekfree_assistant_camera_boundary_config(&boundary_r_obj,
             SEEKFREE_ASSISTANT_DATA_TYPE_UINT16, 0x001F,
-            (uint16)right_line_count, right_line_points);
+            (uint16)right_line_count, mapped_right);
         seekfree_assistant_camera_boundary_send(&boundary_r_obj);
+    }
+    /* 控制实际采用的中线：绿色 */
+    if (control_center_count > 0)
+    {
+        for (i = 0; i < control_center_count; i++)
+        {
+            int16 x = control_center_points[i][0], y = control_center_points[i][1];
+            mapped_center[i][0] = (x >= 0 && x < PERS_W && y >= 0 && y < PERS_H) ? invx[y][x] : -1;
+            mapped_center[i][1] = (x >= 0 && x < PERS_W && y >= 0 && y < PERS_H) ? invy[y][x] : -1;
+        }
+        seekfree_assistant_camera_boundary_config(&center_obj,
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT16, 0x07E0,
+            control_center_count, mapped_center);
+        seekfree_assistant_camera_boundary_send(&center_obj);
     }
 }
 void wifi_debug_data(void)
@@ -125,6 +157,8 @@ void wifi_debug_data(void)
     sprintf(buf, "$DATA,%d,%d,%.1f,%d,%d,%d\r\n",
             dif_val, mid, (double)angle,
             encoder_left, encoder_right, base_speed);
+    wifi_spi_send_string(buf);
+    sprintf(buf, "$RUN,%d\r\n", stop_flog ? 0 : 1);
     wifi_spi_send_string(buf);
 }
 

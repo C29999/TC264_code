@@ -15,12 +15,12 @@ int16 image_error_filter=0;
 
 
 
-uint8 stop_flog=0;
+uint8 stop_flog=1;       // 上电保持停车，双击发车后才清零
 int16 base_speed=0;       //鍩虹閫熷害鐩爣(缂栫爜鍣ㄨ鏁�/10ms)
 int16 dif_val=0;        //鏂瑰悜涓幆杈撳嚭鐨勫樊閫熼噺
 
 //                kp    kp2    ki   kd   low_pass  p_max  i_max  d_max  kgyro
-pid_param_t servo_pid = PID_CREATE(2.1,  0.05,  0,  2.0,  0.3, 14.5,   0,    8.0,  -0.03);
+pid_param_t servo_pid = PID_CREATE(1.6 , 0.065,  0,  2.0,  0.3, 14.5,   0,    8.0,  -0.03);
 pid_param_t motor_pid_l = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_r = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_l_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
@@ -33,18 +33,14 @@ float corner_speed_slope  = 0.01f;   // 弯道减速斜率（越大减速越快�
 
 float pure_angle = 0;        // 纯转角度（弧度），0=直道
 float pure_rad   = 0;        // 纯转角度（弧度），0=直道
-float aim_distance = 0.5;    // 目标距离（单位：米）
+float aim_distance = 0.20f;  // 目标距离（单位：米），位于25cm标定区域内
 float angle = 0;             // 目标角度（弧度），0=直道
 float turn_diff = 5.2f;       // 差速比（内轮减速比例 0~1，越大差速越强，0.9≈强）
 float turn_diff_outer = 0;   // 外轮加速比例（相对内轮减速量：0=不加速 0.5=一半 1=同量，越大差速越强）
-float corner_cut_px = 0.0f;   // 弯道内切偏移量（像素），0=不内切
-float corner_cut_th  = 0.15f;   // 弯道判定阈值（弧度），直道转角小于此不内切
-float corner_turn    = 0.0f;   // 前瞻点局部转角（调试显示，正=右弯 负=左弯）
-float corner_mismatch_th = 0.35f;   // 两侧边线形态差阈值（弧度≈20°），超过判为闭合/串线，降级单边
-float mx_rate_limit = 0.03f;   // 中线单帧最大变化（米/帧≈2px），防前瞻点突变导致舵机抽搐
-float corner_buz_th = 0.30f;   // 大弯道蜂鸣阈值（弧度≈17度），超过触发蜂鸣器响一下
-int16 buzzer_tick = 0;         // 蜂鸣器剩余响帧数（>0 时响，每帧递减）
-uint16 state_flags = 0;         // 取线分支状态位：bit0=L bit1=R bit2=双边 bit3=降级 bit4=单左 bit5=单右 bit6=全丢 bit7=内切
+float mx_rate_limit = 0.02f;   // 中线单帧最大变化（米/帧≈1.4px）
+float center_right_offset_px = 2.0f; // 理论中线向图像右侧偏移量（像素）
+uint8 launch_direction = 0;    // 0=左线为主，1=右线为主；发车前KEY3切换
+uint16 state_flags = 0;         // bit0=L bit1=R bit2=双边中线 bit4=左补线 bit5=右补线 bit6=全丢
 void data_init(void)
 {
 }

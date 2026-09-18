@@ -263,49 +263,14 @@ void show_draw_edges(void)
                          RGB565_RED);
     }
 
-    // 中线：绿色（逐行对齐版：按y行取左右线x的中点，单边行用±TRACK_HALF_W虚拟）
+    // 绿色中线直接绘制控制算法实际采用的中线，不在显示层重复计算。
+    for (i = 1; i < control_center_count; i++)
     {
-        int16 lx[MT9V03X_H], rx[MT9V03X_H];
-        int16 y2, mx;
-        int16 prev_x = -1, prev_y = -1;
-
-        for (y2 = 0; y2 < MT9V03X_H; y2++) { lx[y2] = -1; rx[y2] = -1; }
-        // 把边线点按行号展开(一行取第一次出现的x)
-        for (i = 0; i < left_line_count; i++)
-            if (left_line_points[i][1] >= 0 && left_line_points[i][1] < MT9V03X_H
-                && lx[left_line_points[i][1]] < 0)
-                lx[left_line_points[i][1]] = left_line_points[i][0];
-        for (i = 0; i < right_line_count; i++)
-            if (right_line_points[i][1] >= 0 && right_line_points[i][1] < MT9V03X_H
-                && rx[right_line_points[i][1]] < 0)
-                rx[right_line_points[i][1]] = right_line_points[i][0];
-
-        // 从近端(底部)往远端逐行连线；mem_half 记忆最近一次双边行的实测半宽（像素）
-        int16 mem_half = TRACK_HALF_W;
-        for (y2 = MT9V03X_H - 1; y2 >= 0; y2--)
-        {
-            if (lx[y2] >= 0 && rx[y2] >= 0)
-            {
-                mx = (lx[y2] + rx[y2]) / 2;   //双边:真中点
-                mem_half = (rx[y2] - lx[y2]) / 2;   //更新实测半宽
-                if (mem_half < 4) mem_half = 4;     //防异常
-            }
-            else if (lx[y2] >= 0)
-            {
-                mx = lx[y2] + mem_half;   //仅左线:向赛道中心(右)补实测半宽
-            }
-            else if (rx[y2] >= 0)
-            {
-                mx = rx[y2] - mem_half;   //仅右线:向赛道中心(左)补实测半宽
-            }
-            else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
-
-            if (prev_x >= 0)
-                ips200_draw_line(edge_map_x(prev_x), edge_map_y(prev_y),
-                                 edge_map_x(mx), edge_map_y(y2), RGB565_GREEN);
-            prev_x = mx;
-            prev_y = y2;
-        }
+        ips200_draw_line(edge_map_x(control_center_points[i - 1][0]),
+                         edge_map_y(control_center_points[i - 1][1]),
+                         edge_map_x(control_center_points[i][0]),
+                         edge_map_y(control_center_points[i][1]),
+                         RGB565_GREEN);
     }
 
 
@@ -325,9 +290,8 @@ void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
     // mt9v03x_finish_flag 在图像处理前会被清零，不能作为显示门控。
-    ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
+    ips200_show_gray_image(0, 0, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
-    ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
     show_draw_edges();
 
     if(current_page == PAGE_MAIN)
@@ -374,7 +338,7 @@ void display_draw(void)
         show_red_bold(108,128, show_buf, RGB565_YELLOW);
         sprintf(show_buf,"cL:%d cR:%d",Lpt0_found,Lpt1_found);
         show_red_bold(108,148, show_buf, RGB565_RED);
-        sprintf(show_buf,"turn:%+05.2f",(double)corner_turn);
+        sprintf(show_buf,"mid:%03d,%03d",mid,mid_y);
         show_red_bold(108,168, show_buf, RGB565_YELLOW);
         sprintf(show_buf,"ST:%d%d%d%d%d%d%d%d",(state_flags&0x80)?1:0,(state_flags&0x40)?1:0,(state_flags&0x20)?1:0,(state_flags&0x10)?1:0,(state_flags&0x08)?1:0,(state_flags&0x04)?1:0,(state_flags&0x02)?1:0,(state_flags&0x01)?1:0);
         show_red_bold(108,188, show_buf, RGB565_CYAN);
@@ -405,6 +369,10 @@ void display_main_drow(void)
         show_red_bold(0, 108, "data", RGB565_BLUE);
         show_red_bold(0, 128, "-->tuning", RGB565_BLUE);
     }
+    sprintf(show_buf, "dir:%s K3", launch_direction ? "RIGHT" : "LEFT");
+    show_red_bold(0, 188, show_buf, RGB565_YELLOW);
+    sprintf(show_buf, "offset:+%.0f", (double)center_right_offset_px);
+    show_red_bold(0, 208, show_buf, RGB565_YELLOW);
 }
 
 //==================== 调参页：参数加减辅助 ====================
@@ -562,6 +530,16 @@ void diplay_key_control(void)
             tuning_select = 0;
             page_changed = 1;
             key_clear_state(KEY_2);
+        }
+        // KEY3：停车状态下选择发车方向对应的主寻线侧。
+        if (key_get_state(KEY_3) == KEY_SHORT_PRESS)
+        {
+            if (stop_flog)
+            {
+                launch_direction ^= 1;
+                page_changed = 1;
+            }
+            key_clear_state(KEY_3);
         }
         break;
 

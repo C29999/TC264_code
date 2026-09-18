@@ -58,10 +58,8 @@ void core1_main(void)
         // 每 10ms 扫描一次按键，保证稳定周期且响应快
         static uint32 last_key_ms = 0;
         static uint32 last_display_ms = 0;
-        static uint32 last_wifi_image_ms = 0;
         static uint32 last_wifi_data_ms = 0;
         const uint32 DISPLAY_REFRESH_MS = 100;
-        const uint32 WIFI_IMAGE_PERIOD_MS = 200;
         const uint32 WIFI_DATA_PERIOD_MS = 100;
         if (system_ms - last_key_ms >= 10)
         {
@@ -81,17 +79,17 @@ void core1_main(void)
         }
         if (mt9v03x_finish_flag)
         {
+            memcpy(img_pers_data, mt9v03x_image, sizeof(img_pers_data));
+            __dsync();
             mt9v03x_finish_flag=0;
             fps_count++;
-            image_threshold(mt9v03x_image); // 1.原图大津二值化
-            find_edges_binary();            // 2.原图二值图迷宫法巡线
-            process_edge_points();          // 3.边线点云处理
-            calculation_error();            // 4.中线偏差
-            if (system_ms - last_wifi_image_ms >= WIFI_IMAGE_PERIOD_MS)
-            {
-                wifi_debug();
-                last_wifi_image_ms = system_ms;
-            }
+            anti_perspective_fast();         // 1.灰度图转换到标定后的鸟瞰平面
+            image_threshold(image_binary);   // 2.鸟瞰灰度原地二值化
+            find_edges_binary();             // 3.鸟瞰二值图迷宫法巡线
+            process_edge_points();           // 4.边线点云处理
+            calculation_error();             // 5.鸟瞰中线与前瞻点
+            // 每个完成的相机帧都发送，不在车端主动抽帧。
+            wifi_debug();
         }
     }
 }

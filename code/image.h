@@ -6,8 +6,8 @@
 
 // 半赛道宽：车居中时110行处(右线x-左线x)的一半
 // 校准：挡住右线,车摆正,看屏幕mid显示M,改成(188-M)
-// 占位恒等表阶段沿用透视校准值94；标定换真鸟瞰表后必须改为(0.225f*pixel_per_meter)
-#define TRACK_HALF_W  (16)
+// 25cm赛道半宽：0.125m * 250px/m = 31.25px
+#define TRACK_HALF_W  (31)
 
 /* ================ 鸟瞰图（逆透视） ================ */
 #define PERS_W  MT9V03X_W    // 鸟瞰图宽 188，与屏幕窗口/原图同构
@@ -23,7 +23,7 @@ typedef struct image
 } image_t;
 #define AT_IMAGE(img, x, y) ((img)->data[(y) * (img)->step + (x)])
 
-extern uint8 img_pers_data[PERS_H][PERS_W];     // 鸟瞰灰度图（逆透视输出）
+extern uint8 img_pers_data[PERS_H][PERS_W];     // 锁定的完整原始灰度帧
 extern int16 touch_boundary0;   // 左巡线碰到图像边界（十字/环岛判据）
 extern int16 touch_boundary1;   // 右巡线碰到图像边界
 extern int16 maze_start_y;   // 迷宫法实际起始行（显示调试用）
@@ -47,7 +47,10 @@ void track_protection(void);
 #define POINTS_MAX_LEN 200//点集的最大容量
 #define sample_dist 0.02f //重采样的间距
 #define angle_dist 0.05f //局部角度参考距离
-#define pixel_per_meter 70.0f
+#define pixel_per_meter 250.0f
+
+extern int16 control_center_points[POINTS_MAX_LEN][2];
+extern uint16 control_center_count;
 
 extern float rpts0[POINTS_MAX_LEN][2];   // L0 原始浮点
 extern float rpts1[POINTS_MAX_LEN][2];

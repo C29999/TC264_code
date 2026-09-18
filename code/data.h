@@ -23,12 +23,10 @@ extern uint8 stop_flog;
 extern int16 base_speed, straight_speed, long_straight_speed, corner_speed;
 extern float corner_speed_slope;   // 弯道减速斜率
 extern float pure_angle, pure_rad, aim_distance, angle, turn_diff, turn_diff_outer;
-extern float corner_cut_px, corner_cut_th, corner_turn;   // 弯道内切参数
-extern float corner_mismatch_th;   // 两侧边线形态差阈值
 extern float mx_rate_limit;   // 中线单帧最大变化
-extern float corner_buz_th;   // 大弯道蜂鸣阈值
-extern int16 buzzer_tick;     // 蜂鸣器剩余响帧数
-extern uint16 state_flags;       // 取线分支状态位
+extern float center_right_offset_px;
+extern uint8 launch_direction;
+extern uint16 state_flags;       // bit2=双边中线，bit4/5=单边补线，bit6=全丢
 
 
 void data_init(void);

@@ -1,7 +1,6 @@
 #include "image.h"
 #include "camera_param.h"
 #include "servo.h"
-#include "beep.h"
 #include "IfxStm.h"
 #define IMAGE_OTSU_BLOCK_W      (188)  // 每个局部区域的宽度
 #define IMAGE_OTSU_BLOCK_H      (20)  // 每个局部区域的高度
@@ -21,6 +20,11 @@ int16 left_line_points[IPTS_MAX][2];
 int16 right_line_points[IPTS_MAX][2];
 uint16 left_line_count = 0;
 uint16 right_line_count = 0;
+int16 control_center_points[POINTS_MAX_LEN][2];
+uint16 control_center_count = 0;
+
+void track_leftline(float pts_in[][2], int16 num, float pts_out[][2], int16 approx_num, float dist);
+void track_rightline(float pts_in[][2], int16 num, float pts_out[][2], int16 approx_num, float dist);
 
 /* ================ 鸟瞰图（逆透视） ================ */
 uint8 img_pers_data[PERS_H][PERS_W];                    // 鸟瞰灰度图
@@ -388,7 +392,8 @@ void image_threshold(const uint8 image[MT9V03X_H][MT9V03X_W])
 }
 /* ========================================================================
  *
- * 每个鸟瞰像素 (i,j) 查 invx/invy 得到原图坐标，直接拷贝灰度值
+ * 每个鸟瞰像素 (i,j) 查 invx/invy，从 img_pers_data 原始快照取灰度，
+ * 暂存到 image_binary；随后 image_threshold() 在该缓冲中原地二值化。
  * 查表越界的像素填黑（防上一帧残留）
  * 占位恒等表下鸟瞰图=原图；标定换真表后本函数一行不用改
  * ======================================================================== */
@@ -407,11 +412,12 @@ void anti_perspective_fast(void)
             sy = invy[j][i];
             if (sx >= 0 && sy >= 0 && sy < MT9V03X_H && sx < MT9V03X_W)
             {
-                img_pers_data[j][i] = mt9v03x_image[sy][sx];
+                // 只读取主循环锁定的完整帧，避免 DMA 更新相机缓冲时混入下一帧。
+                image_binary[j][i] = img_pers_data[sy][sx];
             }
             else
             {
-                img_pers_data[j][i] = 0;
+                image_binary[j][i] = 0;
             }
         }
     }
@@ -582,9 +588,149 @@ void find_edges_binary(void)
 /**
  * 前瞻角误差计算
  * 鸟瞰米制坐标下：中线前瞻点相对车头方向的偏角 → pure_angle（方向环输入，单位：度）
- * 三分支：双边取中线前瞻 / 单边±米制半宽补线 / 全丢保持上次输出
+ * 发车前选择主边线，沿其法线生成中线；主边线无效时切换到另一侧。
  */
 /* 单边补线：丢线时用最近一次双边实测的米制半宽向缺线侧补中线（免像素-米换算） */
+static void calculation_error_rows_unused(void)
+{
+    static float half_width_by_row[MT9V03X_H];
+    static int16 stable_center_x[MT9V03X_H];
+    static uint8 half_valid[MT9V03X_H];
+    static uint8 center_valid[MT9V03X_H];
+    static int32 left_sum[MT9V03X_H], right_sum[MT9V03X_H];
+    static uint8 left_n[MT9V03X_H], right_n[MT9V03X_H];
+    static int16 left_x[MT9V03X_H], right_x[MT9V03X_H];
+    static uint8 center_source[POINTS_MAX_LEN];
+    int16 i, y, target_y_px, best = -1, best_dy = 32767;
+    float mx, my, dx, dy, dn;
+    float cx = (float)MT9V03X_W * 0.5f / pixel_per_meter;
+    float cy = (float)(MT9V03X_H - 10) / pixel_per_meter;
+
+    for (y = 0; y < MT9V03X_H; y++)
+    {
+        left_sum[y] = right_sum[y] = 0;
+        left_n[y] = right_n[y] = 0;
+    }
+    for (i = 0; i < left_line_count; i++)
+    {
+        int16 py = left_line_points[i][1];
+        if (py >= 0 && py < MT9V03X_H && left_n[py] < 250)
+        { left_sum[py] += left_line_points[i][0]; left_n[py]++; }
+    }
+    for (i = 0; i < right_line_count; i++)
+    {
+        int16 py = right_line_points[i][1];
+        if (py >= 0 && py < MT9V03X_H && right_n[py] < 250)
+        { right_sum[py] += right_line_points[i][0]; right_n[py]++; }
+    }
+
+    for (y = 0; y < MT9V03X_H; y++)
+    {
+        left_x[y] = left_n[y] ? (int16)(left_sum[y] / left_n[y]) : -1;
+        right_x[y] = right_n[y] ? (int16)(right_sum[y] / right_n[y]) : -1;
+        if (!half_valid[y])
+            half_width_by_row[y] = (float)TRACK_HALF_W * (float)(y + 10) / 120.0f;
+        if (left_x[y] >= 0 && right_x[y] > left_x[y])
+        {
+            float measured = (float)(right_x[y] - left_x[y]) * 0.5f;
+            if (measured >= 2.0f && measured <= 60.0f)
+            {
+                if (half_valid[y])
+                    half_width_by_row[y] = half_width_by_row[y] * 0.8f + measured * 0.2f;
+                else
+                { half_width_by_row[y] = measured; half_valid[y] = 1; }
+            }
+        }
+    }
+
+    control_center_count = 0;
+    for (y = MT9V03X_H - 1; y > 0 && control_center_count < POINTS_MAX_LEN; y--)
+    {
+        int16 candidate = -1;
+        uint8 source = 0;
+        if (launch_direction == 0)
+        {
+            if (left_x[y] >= 0) { candidate = (int16)(left_x[y] + half_width_by_row[y]); source = 1; }
+            else if (right_x[y] >= 0) { candidate = (int16)(right_x[y] - half_width_by_row[y]); source = 2; }
+        }
+        else
+        {
+            if (right_x[y] >= 0) { candidate = (int16)(right_x[y] - half_width_by_row[y]); source = 2; }
+            else if (left_x[y] >= 0) { candidate = (int16)(left_x[y] + half_width_by_row[y]); source = 1; }
+        }
+        if (candidate < 0) continue;
+
+        candidate += (int16)center_right_offset_px;
+        candidate = clip(candidate, 0, MT9V03X_W - 1);
+        if (center_valid[y])
+        {
+            int16 d = candidate - stable_center_x[y];
+            d = clip(d, -3, 3);
+            stable_center_x[y] += d;
+        }
+        else
+        { stable_center_x[y] = candidate; center_valid[y] = 1; }
+
+        control_center_points[control_center_count][0] = stable_center_x[y];
+        control_center_points[control_center_count][1] = y;
+        center_source[control_center_count] = source;
+        control_center_count++;
+    }
+
+    if (control_center_count == 0)
+    {
+        state_flags = 0x40;
+        pure_angle *= 0.95f;
+        image_error_filter = (int16)pure_angle;
+        return;
+    }
+
+    target_y_px = (MT9V03X_H - 10) - (int16)(aim_distance * pixel_per_meter);
+    target_y_px = clip(target_y_px, 1, MT9V03X_H - 1);
+    for (i = 0; i < (int16)control_center_count; i++)
+    {
+        int16 d = abs(control_center_points[i][1] - target_y_px);
+        if (d < best_dy) { best_dy = d; best = i; }
+    }
+
+    y = control_center_points[best][1];
+    state_flags = 0;
+    if (left_x[y] >= 0) state_flags |= 0x01;
+    if (right_x[y] >= 0) state_flags |= 0x02;
+    state_flags |= (center_source[best] == 1) ? 0x10 : 0x20;
+
+    mid = control_center_points[best][0];
+    mid_y = y;
+    mx = (float)mid / pixel_per_meter;
+    my = (float)mid_y / pixel_per_meter;
+    dx = mx - cx;
+    dy = cy - my + 0.2f;
+    dn = sqrtf(dx * dx + dy * dy);
+    if (dn < 0.01f) return;
+
+    pure_rad = -atanf(2.0f * 0.3f * dx / (dn * dn));
+    {
+        float new_angle = pure_rad * 57.2958f / SMOTOR_RATE;
+        if (fabsf(new_angle) < 1.0f) new_angle = 0.0f;
+        pure_angle = new_angle * 0.35f + pure_angle * 0.65f;
+    }
+    {
+        static float last_angle_out = 0.0f;
+        static uint8 ready = 0;
+        float d;
+        if (ready)
+        {
+            d = pure_angle - last_angle_out;
+            if (d > 4.0f) d = 4.0f;
+            if (d < -4.0f) d = -4.0f;
+            pure_angle = last_angle_out + d;
+        }
+        ready = 1;
+        last_angle_out = pure_angle;
+    }
+    image_error_filter = (int16)pure_angle;
+}
+
 void calculation_error(void)
 {
     // 动态半宽：最近一次双边实测的赛道半宽（米制），丢线补线用；初值取 TRACK_HALF_W
@@ -592,6 +738,14 @@ void calculation_error(void)
     float mx, my;
     float dx, dy, dn;
     float cx, cy;
+    static float left_center[POINTS_MAX_LEN][2];
+    static float right_center[POINTS_MAX_LEN][2];
+    static float dual_center[POINTS_MAX_LEN][2];
+    float (*active_center)[2] = 0;
+    int16 active_num = 0;
+    int16 dual_num = 0;
+    int16 dual_idx = -1;
+    uint8 dual_ok = 0;
 
     // 车头投影位置：鸟瞰图底部中央（像素→米）
     cx = MT9V03X_W / 2 / pixel_per_meter;
@@ -623,88 +777,128 @@ void calculation_error(void)
 
     uint8 l_ok = (l_idx >= 0 && l_min_d < TARGET_Y_TOL && l_pts >= TARGET_Y_MIN_PTS);
     uint8 r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL && r_pts >= TARGET_Y_MIN_PTS);
-    // 残端保护：边线在 target_y 前就已到头（取到点云末端）→ 视为丢线，防内线残端端点抖动
-    if (l_ok && l_idx >= rpts0s_num - 1) l_ok = 0;
-    if (r_ok && r_idx >= rpts1s_num - 1) r_ok = 0;
-    state_flags = 0;                       // 分支状态标志清零，各分支按需置位
-    if (l_ok) state_flags |= 0x01;
-    if (r_ok) state_flags |= 0x02;
-    if (l_ok && r_ok)            // 双边都找到：同一 y 截面取中点，并更新实测半宽（带低通）
+    // 双边只用于缓慢校准赛道半宽，不参与目标点的左右选择。
+    if (l_ok && r_ok)
     {
         float new_half = fabsf(rpts1s[r_idx][0] - rpts0s[l_idx][0]) * 0.5f;
-        float dir_diff = fabsf(rpts0a[l_idx] - rpts1a[r_idx]);   // 两侧边线形态差（弧度），闭合/串线时背离
-        if (rpts0s[l_idx][0] < rpts1s[r_idx][0]   // 硬保护：左线横坐标必须小于右线（防左右反/串线）
-            && new_half >= 0.05f && new_half <= track_half_w * 3.0f && dir_diff < corner_mismatch_th)
-        {
-            state_flags |= 0x04;                 // bit2=双边取中点（四重闸全过）
-            // 宽度正常且两侧形态一致：取中点并更新实测半宽
-            track_half_w = track_half_w * 0.7f + new_half * 0.3f;   // 半宽低通，防残端点污染
-            mx = (rpts0s[l_idx][0] + rpts1s[r_idx][0]) / 2;
-            my = (rpts0s[l_idx][1] + rpts1s[r_idx][1]) / 2;
-        }
-        else   // 过窄(串线)/过宽(折返)/两侧形态背离(闭合围住)：降级单边用实测半宽补中线，防前瞻点横跳
-        { state_flags |= 0x08; }              // bit3=双边但降级单边
-        {
-            if (l_min_d <= r_min_d) { mx = rpts0s[l_idx][0] + track_half_w; my = rpts0s[l_idx][1]; }
-            else                    { mx = rpts1s[r_idx][0] - track_half_w; my = rpts1s[r_idx][1]; }
-        }
+        if (rpts0s[l_idx][0] < rpts1s[r_idx][0]
+            && new_half >= 0.05f && new_half <= 0.60f)
+            track_half_w = track_half_w * 0.9f + new_half * 0.1f;
     }
-    else if (l_ok)                     // 只有左线：中线 = 左线 + 实测半宽（向赛道中心补）
+
+    // 先沿边线法线生成完整中线，再在中线上选择前瞻点。
+    l_ok = 0;
+    if (rpts0s_num >= 2)
     {
-        state_flags |= 0x10;                 // bit4=仅左线单边补线
-        mx = rpts0s[l_idx][0] + track_half_w;
-        my = rpts0s[l_idx][1];
+        track_leftline(rpts0s, rpts0s_num, left_center, 3, track_half_w);
+        for (i = 0; i < rpts0s_num; i++)
+            left_center[i][0] += center_right_offset_px / pixel_per_meter;
+        l_min_d = 1e9f;
+        l_idx = -1;
+        for (i = 0; i < rpts0s_num; i++)
+        {
+            float d = fabsf(left_center[i][1] - target_y);
+            if (d < l_min_d) { l_min_d = d; l_idx = i; }
+        }
+        l_ok = (l_idx >= 0 && l_min_d < TARGET_Y_TOL);
     }
-    else if (r_ok)                     // 只有右线：中线 = 右线 - 实测半宽（向赛道中心补）
+
+    r_ok = 0;
+    if (rpts1s_num >= 2)
     {
-        state_flags |= 0x20;                 // bit5=仅右线单边补线
-        mx = rpts1s[r_idx][0] - track_half_w;
-        my = rpts1s[r_idx][1];
+        track_rightline(rpts1s, rpts1s_num, right_center, 3, track_half_w);
+        for (i = 0; i < rpts1s_num; i++)
+            right_center[i][0] += center_right_offset_px / pixel_per_meter;
+        r_min_d = 1e9f;
+        r_idx = -1;
+        for (i = 0; i < rpts1s_num; i++)
+        {
+            float d = fabsf(right_center[i][1] - target_y);
+            if (d < r_min_d) { r_min_d = d; r_idx = i; }
+        }
+        r_ok = (r_idx >= 0 && r_min_d < TARGET_Y_TOL);
+    }
+
+    // 双边中线：先由两侧边线沿各自法线得到中心估计，再融合两条估计。
+    // 急弯中不能直接对同一水平行的左右边线取中点，否则会明显切向弯内侧。
+    if (rpts0s_num >= 2 && rpts1s_num >= 2)
+    {
+        float dual_min_d = 1e9f;
+        for (i = 0; i < rpts0s_num && dual_num < POINTS_MAX_LEN; i++)
+        {
+            int16 j;
+            int16 best_j = -1;
+            float best_y_d = 1e9f;
+            for (j = 0; j < rpts1s_num; j++)
+            {
+                float y_d = fabsf(right_center[j][1] - left_center[i][1]);
+                if (y_d < best_y_d) { best_y_d = y_d; best_j = j; }
+            }
+            if (best_j >= 0 && best_y_d <= sample_dist * 1.5f
+                && fabsf(left_center[i][0] - right_center[best_j][0]) <= 0.10f)
+            {
+                float d;
+                dual_center[dual_num][0] = (left_center[i][0] + right_center[best_j][0]) * 0.5f;
+                dual_center[dual_num][1] = (left_center[i][1] + right_center[best_j][1]) * 0.5f;
+                d = fabsf(dual_center[dual_num][1] - target_y);
+                if (d < dual_min_d) { dual_min_d = d; dual_idx = dual_num; }
+                dual_num++;
+            }
+        }
+        dual_ok = (dual_num >= 2 && dual_idx >= 0 && dual_min_d < TARGET_Y_TOL);
+    }
+
+    state_flags = 0;
+    if (l_ok) state_flags |= 0x01;
+    if (r_ok) state_flags |= 0x02;
+    if (dual_ok)
+    {
+        state_flags |= 0x04;
+        active_center = dual_center;
+        active_num = dual_num;
+        mx = dual_center[dual_idx][0];
+        my = dual_center[dual_idx][1];
+    }
+    else if ((launch_direction == 0 && l_ok) || (launch_direction != 0 && !r_ok && l_ok))
+    {
+        state_flags |= 0x10;
+        active_center = left_center;
+        active_num = rpts0s_num;
+        mx = left_center[l_idx][0];
+        my = left_center[l_idx][1];
+    }
+    else if (r_ok)
+    {
+        state_flags |= 0x20;
+        active_center = right_center;
+        active_num = rpts1s_num;
+        mx = right_center[r_idx][0];
+        my = right_center[r_idx][1];
     }
     else                                     // 全丢：角度衰减回正
     {
         state_flags |= 0x40;                 // bit6=全丢
         pure_angle *= 0.95f;   // 急弯内侧线短暂缺失时温和保持转向，避免频繁回正来回摆（出赛道保护兜底停车）
         image_error_filter = (int16)pure_angle;
+        control_center_count = 0;
         return;
     }
-    // 中线 x 帧间低通：抑制 y 截面最近点在离散点云上的跳变（直道防抖）
+    // 中线 x/y 统一低通，左线丢失切到右线时不产生一帧毛刺。
     {
         static uint8 mx_lpf_ready = 0;
         static float last_mx = 0.0f;
+        static float last_my = 0.0f;
         if (mx_lpf_ready)
-            mx = mx * 0.5f + last_mx * 0.5f;
+        {
+            mx = mx * 0.35f + last_mx * 0.65f;
+            my = my * 0.35f + last_my * 0.65f;
+        }
         else
             mx_lpf_ready = 1;
         last_mx = mx;
+        last_my = my;
     }
-    // ===== 弯道内切：前瞻点处两侧边线的局部转角判弯向，向弯道内侧平移中线 =====
-    {
-        float turn = 0.0f;
-        int16 a_cnt = 0;
-        if (l_ok && l_idx >= 0 && l_idx < rpts0a_num) { turn += rpts0a[l_idx]; a_cnt++; }
-        if (r_ok && r_idx >= 0 && r_idx < rpts1a_num) { turn += rpts1a[r_idx]; a_cnt++; }
-        if (a_cnt > 0)
-        {
-            turn /= a_cnt;                       // 正=右弯 负=左弯（弧度，图像坐标 y 向下）
-            corner_turn = turn;                  // 调试显示
-            // 滞回：启动用 corner_cut_th，关闭用其一半，防弯道入口/出口 turn 抖动导致内切反复开关（抽一下）
-            {
-                static uint8 cut_active = 0;
-                float th_on  = corner_cut_th;
-                float th_off = corner_cut_th * 0.5f;
-                if (cut_active) { if (fabsf(turn) < th_off) cut_active = 0; }
-                else            { if (fabsf(turn) > th_on)  cut_active = 1; }
-                if (cut_active)
-                {
-                    state_flags |= 0x80;         // bit7=内切激活
-                    float cut = corner_cut_px / pixel_per_meter;   // 像素->米制
-                    mx += (turn > 0.0f) ? (cut) : (-cut);          // 右弯向右偏，左弯向左偏（正=右弯）
-                }
-            }
-        }
-    }
-    // 中线 x 帧间限幅：单帧最大变化 mx_rate_limit 米，降级切换/残端跳变被削成斜坡，防舵机抽搐
+    // 中线 x 帧间限幅：异常点不能让中线横向闪跳。
     {
         static uint8 mx_lim_ready = 0;
         static float last_mx_lim = 0.0f;
@@ -719,14 +913,27 @@ void calculation_error(void)
         mx_lim_ready = 1;
         last_mx_lim = mx;
     }
-    // ===== 大弯道蜂鸣提示：turn 超过 corner_buz_th 边沿触发响一下 =====
+
+    // 滤波目标重新投影到当前中线，保证前瞻点严格位于中线点集上。
     {
-        static uint8 buz_prev = 0;
-        uint8 buz_now = (fabsf(corner_turn) > corner_buz_th) ? 1 : 0;
-        if (buz_now && !buz_prev) buzzer_tick = 8;   // 响约 8 帧（60~120fps 时约 70~130ms）
-        buz_prev = buz_now;
-        if (buzzer_tick > 0) { buzzer_tick--; beep_on(); }
-        else                 { beep_off(); }
+        int16 best = 0;
+        float best_d2 = 1e9f;
+        for (i = 0; i < active_num; i++)
+        {
+            float ex = active_center[i][0] - mx;
+            float ey = active_center[i][1] - my;
+            float d2 = ex * ex + ey * ey;
+            if (d2 < best_d2) { best_d2 = d2; best = i; }
+        }
+        mx = active_center[best][0];
+        my = active_center[best][1];
+    }
+
+    control_center_count = (uint16)active_num;
+    for (i = 0; i < active_num; i++)
+    {
+        control_center_points[i][0] = (int16)(active_center[i][0] * pixel_per_meter);
+        control_center_points[i][1] = (int16)(active_center[i][1] * pixel_per_meter);
     }
     //车头指向前瞻点的向量（y轴指向车，dy>0 表示目标在前方）
     dx = mx - cx;
@@ -764,7 +971,7 @@ void calculation_error(void)
 //出赛道保护
 void track_protection(void)
 {
-    static uint8 stop_outline_count = 0;  // 连续丢线帧计数
+    static uint16 stop_outline_count = 0; // 10ms周期下的连续丢线计数
 
     // 左右边线都几乎找不到（点数 < 2），判定丢线
     if (left_line_count < 2 && right_line_count < 2)
@@ -776,8 +983,8 @@ void track_protection(void)
         stop_outline_count = 0;  // 检测到边线，清零
     }
 
-    // 连续 12 帧都丢线才停车（防十字口误触发）
-    if (stop_outline_count > 12)
+    // 左右边线连续丢失满1秒才停车，允许急弯和十字区域短时丢线。
+    if (stop_outline_count >= 100)
     {
         stop_outline_count = 0;
         stop_flog = 1;
