@@ -63,22 +63,34 @@ IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH0);
     angle = quadradic_pid_solve(&servo_pid, pure_angle);
-    // 误差绝对值 > 6 时舵机直接打死（立即打满 ±SMOTOR_LIMIT，不走低通）
-    if (image_error_filter > 8)
-    {
-        servo_set( SMOTOR_LIMIT);
-        return;
-    }
-    if (image_error_filter < -8)
-    {
-        servo_set(-SMOTOR_LIMIT);
-        return;
-    }
-    // 舵机输出低通滤波，抑制抖动
+    // 误差绝对值 > 7 舵机打死：强制角度=限幅（低通跟随，退出时平滑回落，防急弯瞬间回正冲出）
+    if (image_error_filter > 7)
+        angle =  SMOTOR_LIMIT + 2.0f;
+    else if (image_error_filter < -7)
+        angle = -SMOTOR_LIMIT - 2.0f;
+    // 舵机输出低通滤波（打死期间低通也收敛到限幅，退出时从限幅平滑回落）
     {
         static float angle_lpf = 0;
         angle_lpf = angle * 0.4f + angle_lpf * 0.6f;
         angle = angle_lpf;
+    }
+    // 回正限幅：朝中心回正时单周期最大 1.0°，防急弯打死退出/微分冲击瞬间回正冲出；打死方向不限
+    {
+        static float last_ang = 9999.0f;
+        static uint8 la_ready = 0;
+        float d;
+        if (la_ready)
+        {
+            d = angle - last_ang;
+            if (fabsf(angle) < fabsf(last_ang))
+            {
+                if (d >  1.0f) d =  1.0f;
+                if (d < -1.0f) d = -1.0f;
+                angle = last_ang + d;
+            }
+        }
+        la_ready = 1;
+        last_ang = angle;
     }
     // 只在角度变化超过0.1度时才写PWM，避免2ms高频刷新导致舵机抖
     {

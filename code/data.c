@@ -33,8 +33,8 @@ pid_param_t motor_pid_r = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_l_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
 pid_param_t motor_pid_r_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
 
-int16 straight_speed      = -360;
-int16 long_straight_speed = -360;
+int16 straight_speed      = -330;
+int16 long_straight_speed = -330;
 int16 corner_speed        = -290;   // 弯道基础速度（-90→-100，弯道整体加快一点）
 float corner_speed_slope  = 0.018f;   // 弯道减速斜率（越大减速越快，0.04≈温和 0.06≈激进）
 
