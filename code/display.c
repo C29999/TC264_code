@@ -377,6 +377,8 @@ void display_draw(void)
         show_red_bold(108,148, show_buf, RGB565_RED);
         sprintf(show_buf,"turn:%+05.2f",(double)corner_turn);
         show_red_bold(108,168, show_buf, RGB565_YELLOW);
+        sprintf(show_buf,"dist:%05.2fm avg:%04.2f",(double)total_distance_m,(double)avg_speed);
+        show_red_bold(108,208, show_buf, RGB565_PINK);
         sprintf(show_buf,"ST:%d%d%d%d%d%d%d%d",(state_flags&0x80)?1:0,(state_flags&0x40)?1:0,(state_flags&0x20)?1:0,(state_flags&0x10)?1:0,(state_flags&0x08)?1:0,(state_flags&0x04)?1:0,(state_flags&0x02)?1:0,(state_flags&0x01)?1:0);
         show_red_bold(108,188, show_buf, RGB565_CYAN);
 
@@ -660,6 +662,12 @@ void key4_double_click_start(void)
                 // ===== 双击触发：发车 =====
                 stop_flog = 0;             // 清除出赛道保护标志
                 base_speed = -220;        // 改成你的起步速度
+                // 开始测距：清零并置标志
+                total_distance = 0;
+                measure_time_ms = 0;
+                total_distance_m = 0;
+                avg_speed = 0;
+                encoder_measure_flag = 1;
                 key4_first = 0;
             }
             else
