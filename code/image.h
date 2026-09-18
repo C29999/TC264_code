@@ -28,6 +28,7 @@ extern int16 touch_boundary0;   // 左巡线碰到图像边界（十字/环岛�
 extern int16 touch_boundary1;   // 右巡线碰到图像边界
 extern int16 maze_start_y;   // 迷宫法实际起始行（显示调试用）
 
+extern uint8 image_gray[MT9V03X_H][MT9V03X_W];
 extern uint8 image_binary[MT9V03X_H][MT9V03X_W];
 extern int16 left_line_points[IPTS_MAX][2];
 extern int16 right_line_points[IPTS_MAX][2];

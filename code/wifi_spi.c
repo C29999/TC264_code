@@ -1,4 +1,5 @@
 #include "wifi_spi.h"
+#include "isr.h"
 
 #include "math.h"
 #include <stdio.h>
@@ -50,7 +51,7 @@ void my_wifi_spi_init(void)
         show_center("WIFI SPI Success");
         system_delay_ms(500);
     }
-    if (wifi_spi_wifi_connect("JCDBK", "12345678") == 0)
+    if (wifi_spi_wifi_connect("C511", "c510c510") == 0)
         {
             show_center("WIFI Connected Success");
             system_delay_ms(500); 
@@ -62,7 +63,7 @@ void my_wifi_spi_init(void)
             return;
         }
     system_delay_ms(200);
-    if (wifi_spi_socket_connect("TCP", "192.168.146.248", "8080", "6060") != 0)
+    if (wifi_spi_socket_connect("TCP", "192.168.0.111", "8080", "6060") != 0)
     {
         show_center("TCP Connecting fail");
         system_delay_ms(500);
@@ -88,7 +89,7 @@ void wifi_image_send(void)
     if (!camera_configured)
     {
         seekfree_assistant_camera_config(&camera_obj,
-            SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, mt9v03x_image);
+            SEEKFREE_ASSISTANT_CAMERA_TYPE_MT9V03X, MT9V03X_W, MT9V03X_H, image_gray);
         camera_configured = 1;
     }
     seekfree_assistant_camera_send(&camera_obj);
@@ -121,10 +122,37 @@ void wifi_boundary_send(void)
 void wifi_debug_data(void)
 {
     if (!wifi_send_ready) return;
-    char buf[128];
-    sprintf(buf, "$DATA,%d,%d,%.1f,%d,%d,%d\r\n",
-            dif_val, mid, (double)angle,
-            encoder_left, encoder_right, base_speed);
+    char buf[384];
+    int16 pure_x100 = (int16)(pure_angle * 100.0f);
+    int16 servo_x100 = (int16)(angle * 100.0f);
+    int16 gyro_x10 = (int16)(gyro_z * 10.0f);
+    int16 p_x100 = (int16)(servo_pid.out_p * 100.0f);
+    int16 d_x100 = (int16)(servo_pid.kd * servo_pid.out_d * 100.0f);
+    int16 raw_angle_x100 = (int16)(trace_raw_angle * 100.0f);
+    int16 raw_mid_x100 = (int16)(trace_mid_raw_px * 100.0f);
+    int16 corner_turn_x1000 = (int16)(corner_turn * 1000.0f);
+    int16 pid_raw_x100 = (int16)(servo_pid_raw * 100.0f);
+    int16 gyro_term_x100 = (int16)(-gyro_z * servo_pid.kgyro * 100.0f);
+    int16 control_error_x100 = (int16)(control_error * 100.0f);
+    uint32 image_age_ms = system_ms - image_update_ms;
+    sprintf(buf,
+            "$TRACE,%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%u,%u,%d,%u,%u"
+            ",%u,%lu,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%u,%d\r\n",
+            (unsigned long)system_ms,
+            pure_x100, servo_x100, gyro_x10, p_x100, d_x100,
+            motor_goal_left, motor_goal_right,
+            encoder_left, encoder_right,
+            motor_pwm_left, motor_pwm_right, motor_diff,
+            (unsigned int)left_line_count, (unsigned int)right_line_count,
+            (unsigned int)state_flags, mid,
+            (unsigned int)fps, (unsigned int)stop_flog,
+            (unsigned int)image_frame_seq, (unsigned long)image_age_ms,
+            raw_angle_x100, raw_mid_x100, corner_turn_x1000,
+            pid_raw_x100, gyro_term_x100, motor_base_goal,
+            trace_l_target_pts, trace_r_target_pts,
+            trace_l_min_mm, trace_r_min_mm,
+            (unsigned int)track_stop_count, (unsigned int)track_invalid_count,
+            control_error_x100);
     wifi_spi_send_string(buf);
 }
 

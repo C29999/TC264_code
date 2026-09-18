@@ -62,19 +62,32 @@ IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
 {
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH0);
-    angle = quadradic_pid_solve(&servo_pid, pure_angle);
-    // 误差绝对值 > 6 时舵机直接打死（立即打满 ±SMOTOR_LIMIT，不走低通）
-    if (image_error_filter > 6)
+    // 图像误差只在新相机帧到来时变化，P/D也只按图像帧更新。
+    // 陀螺阻尼仍以2ms周期更新，用车身角速度及时收舵。
     {
-        servo_set( SMOTOR_LIMIT);
-        return;
+        static uint16 last_frame_seq = 0xFFFF;
+        static float vision_output = 0.0f;
+        uint16 frame_seq = image_frame_seq;
+        if (frame_seq != last_frame_seq)
+        {
+            float diff;
+            control_error = MINMAX(pure_angle * (50.0f / SMOTOR_LIMIT), -50.0f, 50.0f);
+            diff = control_error - servo_pid.pre_error;
+            servo_pid.out_p = servo_pid.kp * control_error
+                              + servo_pid.kp2 * control_error * fabsf(control_error);
+            servo_pid.out_d = diff * servo_pid.low_pass
+                              + servo_pid.out_d * (1.0f - servo_pid.low_pass);
+            servo_pid.pre_pre_error = servo_pid.pre_error;
+            servo_pid.pre_error = control_error;
+            vision_output = MINMAX(servo_pid.out_p, -servo_pid.p_max, servo_pid.p_max)
+                          + MINMAX(servo_pid.kd * servo_pid.out_d,
+                                   -servo_pid.d_max, servo_pid.d_max);
+            last_frame_seq = frame_seq;
+        }
+        servo_pid_raw = vision_output - gyro_z * servo_pid.kgyro;
+        angle = servo_pid_raw;
     }
-    if (image_error_filter < -6)
-    {
-        servo_set(-SMOTOR_LIMIT);
-        return;
-    }
-    // 舵机输出低通滤波，抑制抖动
+    // 全程连续滤波；避免误差跨过 +/-6 度时在“打满”和 PID 输出之间跳变。
     {
         static float angle_lpf = 0;
         angle_lpf = angle * 0.4f + angle_lpf * 0.6f;

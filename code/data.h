@@ -31,6 +31,14 @@ extern uint32 measure_time_ms;       // 测距累计时间（ms）
 extern int16 base_speed, straight_speed, long_straight_speed, corner_speed;
 extern float corner_speed_slope;   // 弯道减速斜率
 extern float pure_angle, pure_rad, aim_distance, angle, turn_diff, turn_diff_outer;
+extern float control_error;
+extern float servo_pid_raw, trace_raw_angle, trace_mid_raw_px;
+extern volatile uint16 image_frame_seq;
+extern volatile uint32 image_update_ms;
+extern int16 trace_l_target_pts, trace_r_target_pts;
+extern int16 trace_l_min_mm, trace_r_min_mm;
+extern uint8 track_stop_count, track_invalid_count;
+extern int16 motor_base_goal;
 extern float corner_cut_px, corner_cut_th, corner_turn;   // 弯道内切参数
 extern float corner_mismatch_th;   // 两侧边线形态差阈值
 extern float mx_rate_limit;   // 中线单帧最大变化

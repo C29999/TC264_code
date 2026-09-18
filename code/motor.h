@@ -14,6 +14,11 @@
 
 extern int16 encoder_left;
 extern int16 encoder_right;
+extern volatile int16 motor_goal_left;
+extern volatile int16 motor_goal_right;
+extern volatile int16 motor_pwm_left;
+extern volatile int16 motor_pwm_right;
+extern volatile int16 motor_diff;
 void motor_init(void);
 void encoder_init(void);
 void encoder_update(void);

@@ -62,7 +62,7 @@ void core1_main(void)
         static uint32 last_wifi_data_ms = 0;
         const uint32 DISPLAY_REFRESH_MS = 100;
         const uint32 WIFI_IMAGE_PERIOD_MS = 200;
-        const uint32 WIFI_DATA_PERIOD_MS = 100;
+        const uint32 WIFI_DATA_PERIOD_MS = 20; // 50Hz control telemetry for oscillation analysis
         if (system_ms - last_key_ms >= 10)
         {
             last_key_ms = system_ms;
@@ -81,12 +81,16 @@ void core1_main(void)
         }
         if (mt9v03x_finish_flag)
         {
+            memcpy(image_gray, mt9v03x_image, sizeof(image_gray));
+            __dsync();
             mt9v03x_finish_flag=0;
             fps_count++;
-            image_threshold_block(mt9v03x_image); // 1.局部分块大津二值化（远端单独算阈值，防黑线断裂）
-            find_edges_binary();            // 2.原图二值图迷宫法巡线
+            image_threshold(image_gray); // Global Otsu preview from the stable frame.
+            find_edges_binary();        // Maze tracing uses the displayed Otsu binary frame.
             process_edge_points();          // 3.边线点云处理
             calculation_error();            // 4.中线偏差
+            image_frame_seq++;
+            image_update_ms = system_ms;
             if (system_ms - last_wifi_image_ms >= WIFI_IMAGE_PERIOD_MS)
             {
                 wifi_debug();

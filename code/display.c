@@ -17,6 +17,13 @@ char show_buf[21];
 #define BOLD_TEXT_BUFFER_WIDTH (BOLD_TEXT_MAX_LENGTH * 8 + 1)
 static uint16 bold_text_buffer[BOLD_TEXT_BUFFER_WIDTH * 16];
 static page_t last_display_page = PAGE_MAIN;
+#define BINARY_PREVIEW_X (127)
+#define BINARY_PREVIEW_W (110)
+#define BINARY_PREVIEW_H (80)
+// Leave CPU1 RAM available for the full-resolution gray frame.
+#pragma section all "cpu0_dsram"
+static uint16 binary_preview[BINARY_PREVIEW_H][BINARY_PREVIEW_W];
+#pragma section all restore
 #define TUNING_MENU_NUM     (2)     //调参一级目录数量：0=PID, 1=SPEED
 #define PID_PARAM_NUM       (9)     //PID编辑页参数数
 #define SPEED_PARAM_NUM     (3)     //SPEED编辑页参数数
@@ -233,7 +240,28 @@ static uint16 edge_map_y2(int16 y)
     if (y > 119) y = 119;
     return (uint16)(y * 80 / 120);
 }
-// 在指定区域画边线/中线/前瞻十字等调试信息（x0=区域左边界, w=区域宽度）
+// Compose overlays before sending the image, avoiding background/line flicker.
+static void preview_draw_line(int16 x0, int16 y0, int16 x1, int16 y1, uint16 color)
+{
+    int16 dx = (x1 > x0) ? x1 - x0 : x0 - x1;
+    int16 dy = (y1 > y0) ? y0 - y1 : y1 - y0;
+    int16 sx = (x0 < x1) ? 1 : -1;
+    int16 sy = (y0 < y1) ? 1 : -1;
+    int16 error = dx + dy;
+    for (;;)
+    {
+        int16 twice_error;
+        if (x0 >= BINARY_PREVIEW_X && x0 < BINARY_PREVIEW_X + BINARY_PREVIEW_W &&
+            y0 >= 0 && y0 < BINARY_PREVIEW_H)
+            binary_preview[y0][x0 - BINARY_PREVIEW_X] = color;
+        if (x0 == x1 && y0 == y1) break;
+        twice_error = 2 * error;
+        if (twice_error >= dy) { error += dy; x0 += sx; }
+        if (twice_error <= dx) { error += dx; y0 += sy; }
+    }
+}
+
+// 在二值预览缓冲中画边线/中线/前瞻十字。
 static void draw_edges_at(uint16 x0, uint16 w)
 {
     const uint16 by = 0;       // 显示区域原点 y
@@ -241,20 +269,19 @@ static void draw_edges_at(uint16 x0, uint16 w)
     uint16 i;
 
     // 图像中心竖线：黄色（无论有没有边线都显示）
-    ips200_draw_line(edge_map_x2(image_center, x0, w), by,
+    preview_draw_line(edge_map_x2(image_center, x0, w), by,
                      edge_map_x2(image_center, x0, w), by + 80,
                      RGB565_YELLOW);
 
     if (left_line_count == 0 && right_line_count == 0)
     {
-        show_red_bold(x0 + 19, 32, "NO POINTS", RGB565_PINK);
         return;
     }
 
     // 左边线：蓝色
     for(i=1;i<left_line_count;i++)
     {
-        ips200_draw_line(edge_map_x2(left_line_points[i-1][0], x0, w), edge_map_y2(left_line_points[i-1][1]),
+        preview_draw_line(edge_map_x2(left_line_points[i-1][0], x0, w), edge_map_y2(left_line_points[i-1][1]),
                          edge_map_x2(left_line_points[i][0], x0, w),   edge_map_y2(left_line_points[i][1]),
                          RGB565_BLUE);
     }
@@ -262,7 +289,7 @@ static void draw_edges_at(uint16 x0, uint16 w)
     // 右边线：红色
     for(i=1;i<right_line_count;i++)
     {
-        ips200_draw_line(edge_map_x2(right_line_points[i-1][0], x0, w), edge_map_y2(right_line_points[i-1][1]),
+        preview_draw_line(edge_map_x2(right_line_points[i-1][0], x0, w), edge_map_y2(right_line_points[i-1][1]),
                          edge_map_x2(right_line_points[i][0], x0, w),   edge_map_y2(right_line_points[i][1]),
                          RGB565_RED);
     }
@@ -305,7 +332,7 @@ static void draw_edges_at(uint16 x0, uint16 w)
             else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
 
             if (prev_x >= 0)
-                ips200_draw_line(edge_map_x2(prev_x, x0, w), edge_map_y2(prev_y),
+                preview_draw_line(edge_map_x2(prev_x, x0, w), edge_map_y2(prev_y),
                                  edge_map_x2(mx, x0, w), edge_map_y2(y2), RGB565_GREEN);
             prev_x = mx;
             prev_y = y2;
@@ -318,32 +345,40 @@ static void draw_edges_at(uint16 x0, uint16 w)
         uint16 px = edge_map_x2(mid, x0, w), py = edge_map_y2(mid_y);
         uint16 py0 = (py > 4) ? (py - 4) : 0;
         uint16 py1 = (py < 76) ? (py + 4) : 79;   // 竖线终点限幅
-        uint16 px0 = (px > 4) ? (px - 4) : x0;    // 横线起点限幅(防下溢)
+        uint16 px0 = (px > x0 + 4) ? (px - 4) : x0;
         uint16 px1 = (px + 4 < edge_x_max) ? (px + 4) : edge_x_max; // 横线终点限幅(防x2越界断言)
-        ips200_draw_line(px0, py, px1, py, RGB565_BLUE);
-        ips200_draw_line(px, py0, px, py1, RGB565_BLUE);
+        preview_draw_line(px0, py, px1, py, RGB565_BLUE);
+        preview_draw_line(px, py0, px, py1, RGB565_BLUE);
     }
     if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
     {
-        ips200_draw_line(edge_map_x2(0, x0, w), edge_map_y2(maze_start_y),
+        preview_draw_line(edge_map_x2(0, x0, w), edge_map_y2(maze_start_y),
                          edge_map_x2(MT9V03X_W - 1, x0, w), edge_map_y2(maze_start_y), RGB565_YELLOW);
     }
 }
 
 // 二值图（右上角 127,0 110x80）画调试信息
-void show_draw_edges(void)      { draw_edges_at(127, 110); }
-// 灰度图（左上角 0,0 126x80）也画同样的调试信息
-void show_draw_edges_gray(void) { draw_edges_at(0, 126); }
+void show_draw_edges(void)
+{
+    uint16 x, y;
+    for (y = 0; y < BINARY_PREVIEW_H; y++)
+        for (x = 0; x < BINARY_PREVIEW_W; x++)
+            binary_preview[y][x] = image_binary[y * MT9V03X_H / BINARY_PREVIEW_H]
+                                               [x * MT9V03X_W / BINARY_PREVIEW_W]
+                                  ? RGB565_WHITE : RGB565_BLACK;
+    draw_edges_at(BINARY_PREVIEW_X, BINARY_PREVIEW_W);
+    ips200_show_rgb565_image(BINARY_PREVIEW_X, 0, &binary_preview[0][0],
+                            BINARY_PREVIEW_W, BINARY_PREVIEW_H,
+                            BINARY_PREVIEW_W, BINARY_PREVIEW_H, 0);
+}
 void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
     // mt9v03x_finish_flag 在图像处理前会被清零，不能作为显示门控。
     if (!display_flog) return;    // 发车后关闭屏幕刷新（省CPU），停车恢复
-    ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
-    ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
+    ips200_show_gray_image(0, 0, (const uint8 *)image_gray, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     // 鸟瞰图显示已删除（用户要求）
     // ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
-    show_draw_edges_gray();      // 灰度图也画调试信息（边线/中线/十字）
     show_draw_edges();
 
     if(current_page == PAGE_MAIN)

@@ -241,6 +241,8 @@ static void mt9v03x_uart_handler (void)
 static void mt9v03x_vsync_handler(void)
 {
     exti_flag_clear(MT9V03X_VSYNC_PIN);
+    // Keep a completed frame intact until CPU1 has copied it.
+    if (mt9v03x_finish_flag) return;
     mt9v03x_dma_int_num = 0;
     if(mt9v03x_dma_init_flag )
     {
