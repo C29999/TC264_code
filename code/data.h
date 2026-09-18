@@ -20,6 +20,14 @@ extern int16 dif_val;        //方向中环输出的差速量
 extern int16 dif_add_speed;        //方向中环输出的差速加量
 
 extern uint8 stop_flog;
+
+/* ================ 编码器测距（10ms中断累加） ================ */
+#define ENCODER_PULSE_PER_METER (11485)   // 实测标定：11485 个编码器计数 = 1 米
+extern int32  total_distance;        // 累计行驶距离（编码器脉冲）
+extern int16  encoder_measure_flag;  // 1=正在测距 0=停止测距
+extern float  total_distance_m;      // 累计距离（米）
+extern float  avg_speed;             // 平均速度（m/s，发车→停车）
+extern uint32 measure_time_ms;       // 测距累计时间（ms）
 extern int16 base_speed, straight_speed, long_straight_speed, corner_speed;
 extern float corner_speed_slope;   // 弯道减速斜率
 extern float pure_angle, pure_rad, aim_distance, angle, turn_diff, turn_diff_outer;

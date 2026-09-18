@@ -16,6 +16,13 @@ int16 image_error_filter=0;
 
 
 uint8 stop_flog=0;
+
+/* ================ 编码器测距（10ms中断累加） ================ */
+int32  total_distance = 0;        // 累计行驶距离（编码器脉冲）
+int16  encoder_measure_flag = 0;  // 1=正在测距 0=停止测距
+float  total_distance_m = 0;      // 累计距离（米）
+float  avg_speed = 0;             // 平均速度（m/s，发车→停车）
+uint32 measure_time_ms = 0;       // 测距累计时间（ms）
 int16 base_speed=0;       //鍩虹閫熷害鐩爣(缂栫爜鍣ㄨ鏁�/10ms)
 int16 dif_val=0;        //鏂瑰悜涓幆杈撳嚭鐨勫樊閫熼噺
 
@@ -29,7 +36,7 @@ pid_param_t motor_pid_r_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0
 int16 straight_speed      = -360;
 int16 long_straight_speed = -360;
 int16 corner_speed        = -290;   // 弯道基础速度（-90→-100，弯道整体加快一点）
-float corner_speed_slope  = 0.015f;   // 弯道减速斜率（越大减速越快，0.04≈温和 0.06≈激进）
+float corner_speed_slope  = 0.018f;   // 弯道减速斜率（越大减速越快，0.04≈温和 0.06≈激进）
 
 float pure_angle = 0;        // 纯转角度（弧度），0=直道
 float pure_rad   = 0;        // 纯转角度（弧度），0=直道
