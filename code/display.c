@@ -314,8 +314,11 @@ void show_draw_edges(void)
     {
         uint16 px = edge_map_x(mid), py = edge_map_y(mid_y);
         uint16 py0 = (py > 4) ? (py - 4) : 0;
-        ips200_draw_line(px - 4, py, px + 4, py, RGB565_BLUE);
-        ips200_draw_line(px, py0, px, py + 4, RGB565_BLUE);
+        uint16 py1 = (py < 76) ? (py + 4) : 79;   // 竖线终点限幅
+        uint16 px0 = (px > 4) ? (px - 4) : 0;     // 横线起点限幅(防下溢)
+        uint16 px1 = (px < 236) ? (px + 4) : 239; // 横线终点限幅(防x2>=240断言)
+        ips200_draw_line(px0, py, px1, py, RGB565_BLUE);
+        ips200_draw_line(px, py0, px, py1, RGB565_BLUE);
     }
     if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
     {
