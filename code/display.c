@@ -310,6 +310,37 @@ void show_draw_edges(void)
     }
 
 
+    // 前瞻行左右边界十字（红）+ 宽度横线（绿，长度=左右横坐标差）
+    if (lookahead_lx >= 0 || lookahead_rx >= 0)
+    {
+        uint16 ly = edge_map_y(lookahead_y);
+        uint16 ly0 = (ly > 3) ? (ly - 3) : 0;
+        uint16 ly1 = (ly < 76) ? (ly + 3) : 79;
+        if (lookahead_lx >= 0)
+        {
+            uint16 lx = edge_map_x(lookahead_lx);
+            uint16 lx0 = (lx > 3) ? (lx - 3) : 0;
+            uint16 lx1 = (lx < 236) ? (lx + 3) : 239;
+            ips200_draw_line(lx0, ly, lx1, ly, RGB565_RED);
+            ips200_draw_line(lx, ly0, lx, ly1, RGB565_RED);
+        }
+        if (lookahead_rx >= 0)
+        {
+            uint16 rx = edge_map_x(lookahead_rx);
+            uint16 rx0 = (rx > 3) ? (rx - 3) : 0;
+            uint16 rx1 = (rx < 236) ? (rx + 3) : 239;
+            ips200_draw_line(rx0, ly, rx1, ly, RGB565_RED);
+            ips200_draw_line(rx, ly0, rx, ly1, RGB565_RED);
+        }
+        if (lookahead_lx >= 0 && lookahead_rx >= 0)
+        {
+            uint16 lx = edge_map_x(lookahead_lx);
+            uint16 rx = edge_map_x(lookahead_rx);
+            ips200_draw_line(lx, ly, rx, ly, RGB565_GREEN);
+            sprintf(show_buf,"w:%03d", rx - lx);
+            show_red_bold(130, 84, show_buf, RGB565_PINK);
+        }
+    }
     // 调试：前瞻点十字（蓝色）+ 迷宫法起始行横线（黄色）
     {
         uint16 px = edge_map_x(mid), py = edge_map_y(mid_y);

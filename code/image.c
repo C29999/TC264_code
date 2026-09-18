@@ -21,6 +21,7 @@ int16 left_line_points[IPTS_MAX][2];
 int16 right_line_points[IPTS_MAX][2];
 uint16 left_line_count = 0;
 uint16 right_line_count = 0;
+int16 lookahead_lx = -1, lookahead_rx = -1, lookahead_y = 0;   // 前瞻行左右边界点(原图像素,-1=无)
 
 /* ================ 鸟瞰图（逆透视） ================ */
 uint8 img_pers_data[PERS_H][PERS_W];                    // 鸟瞰灰度图
@@ -626,6 +627,10 @@ void calculation_error(void)
     // 残端保护：边线在 target_y 前就已到头（取到点云末端）→ 视为丢线，防内线残端端点抖动
     if (l_ok && l_idx >= rpts0s_num - 1) l_ok = 0;
     if (r_ok && r_idx >= rpts1s_num - 1) r_ok = 0;
+    // 导出前瞻行左右边界点（调试：缩略图十字 + 宽度显示）
+    lookahead_y = (int16)(target_y * pixel_per_meter);
+    lookahead_lx = l_ok ? (int16)(rpts0s[l_idx][0] * pixel_per_meter) : -1;
+    lookahead_rx = r_ok ? (int16)(rpts1s[r_idx][0] * pixel_per_meter) : -1;
     state_flags = 0;                       // 分支状态标志清零，各分支按需置位
     if (l_ok) state_flags |= 0x01;
     if (r_ok) state_flags |= 0x02;
