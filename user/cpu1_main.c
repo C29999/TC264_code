@@ -60,9 +60,30 @@ void core1_main(void)
         static uint32 last_display_ms = 0;
         static uint32 last_wifi_image_ms = 0;
         static uint32 last_wifi_data_ms = 0;
+        static uint32 last_wifi_rx_ms = 0;
         const uint32 DISPLAY_REFRESH_MS = 100;
-        const uint32 WIFI_IMAGE_PERIOD_MS = 200;
+        // 边线数据每帧发送；原始灰度图约 22.5KB/帧，低频发送避免 TCP 堵塞和十几秒延迟
+        const uint32 WIFI_IMAGE_PERIOD_MS = 40;
         const uint32 WIFI_DATA_PERIOD_MS = 100;
+        // WiFi SPI 主动收包会等待模块响应，只在停车待命时低频轮询遥控命令。
+        if (!encoder_measure_flag && wifi_remote_ready() &&
+            system_ms - last_wifi_rx_ms >= 500)
+        {
+            last_wifi_rx_ms = system_ms;
+            wifi_task();
+        }
+        if (wifi_go_flag)
+        {
+            wifi_go_flag = 0;
+            stop_flog = 0;
+            base_speed = -220;
+            total_distance = 0;
+            measure_time_ms = 0;
+            total_distance_m = 0;
+            avg_speed = 0;
+            encoder_measure_flag = 1;
+            display_flog = 1;
+        }
         if (system_ms - last_key_ms >= 10)
         {
             last_key_ms = system_ms;

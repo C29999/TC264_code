@@ -9,7 +9,7 @@ typedef enum
 } page_t;
 extern page_t current_page;
 extern uint8 page_changed;
-extern uint8 display_flog;      // 1=屏幕刷新开 0=关（发车后关，停车恢复）
+extern uint8 display_flog;      // 1=屏幕刷新开 0=关
 void lcd_init(void);
 void show_boot_ani(void);
 void show_center(const char *text);

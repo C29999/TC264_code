@@ -27,7 +27,7 @@ extern uint8 img_pers_data[PERS_H][PERS_W];     // 鸟瞰灰度图（逆透视�
 extern int16 touch_boundary0;   // 左巡线碰到图像边界（十字/环岛判据）
 extern int16 touch_boundary1;   // 右巡线碰到图像边界
 extern int16 maze_start_y;   // 迷宫法实际起始行（显示调试用）
-extern int16 lookahead_lx, lookahead_rx, lookahead_y;   // 前瞻行左右边界点(原图像素,-1=无)
+extern int16 maze_start_left_x, maze_start_right_x;
 extern int16 lookahead_lx, lookahead_rx, lookahead_y;   // 前瞻行左右边界点(原图像素,-1=无)
 
 extern uint8 image_binary[MT9V03X_H][MT9V03X_W];

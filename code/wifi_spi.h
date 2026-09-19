@@ -14,10 +14,12 @@ int Sin(void);
 extern int16 wifi_cmd_speed;    // $SPEED 后的第一个数字
 extern int16 wifi_cmd_param2;   // $SPEED 后的第二个数字
 extern uint8 wifi_cmd_flag;     // 收到新指令时置1，处理完清0
+extern volatile uint8 wifi_go_flag; // 收到 $GO 后置1，主循环处理后清0
 
 extern int16 rx_speed;
 extern int16 rx_change_flag;
 void wifi_task(void);
+uint8 wifi_remote_ready(void);
 void rx_change(void);
 
 #endif

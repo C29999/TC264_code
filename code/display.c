@@ -11,7 +11,7 @@ static void tuning_draw_edit(void);
 page_t current_page = PAGE_MAIN;
 uint8 main_select = 0;       // 0：常用 data，1：调参
 uint8 page_changed = 1;
-uint8 display_flog = 1;      // 1=屏幕刷新开 0=关（发车后关，停车恢复）
+uint8 display_flog = 1;      // 1=屏幕刷新开 0=关
 char show_buf[21];
 #define BOLD_TEXT_MAX_LENGTH (20)
 #define BOLD_TEXT_BUFFER_WIDTH (BOLD_TEXT_MAX_LENGTH * 8 + 1)
@@ -219,7 +219,7 @@ void show_center(const char *text)
 
     show_red_bold(x, y, text, RGB565_PINK);
 }
-//边线坐标→缩略图屏幕坐标映射（带截断，防单边补线时越界画花屏幕）
+//边线坐标→缩略图屏幕坐标映射
 static uint16 edge_map_x(int16 x)
 {
     if (x < 0)   x = 0;
@@ -229,6 +229,18 @@ static uint16 edge_map_x(int16 x)
 static uint16 edge_map_y(int16 y)
 {
     if (y < 0)   y = 0;
+    if (y > 119) y = 119;
+    return (uint16)(y * 80 / 120);
+}
+static uint16 gray_map_x(int16 x)
+{
+    if (x < 0) x = 0;
+    if (x > 187) x = 187;
+    return (uint16)(x * 126 / 188);
+}
+static uint16 gray_map_y(int16 y)
+{
+    if (y < 0) y = 0;
     if (y > 119) y = 119;
     return (uint16)(y * 80 / 120);
 }
@@ -251,6 +263,9 @@ void show_draw_edges(void)
     // 左边线：蓝色
     for(i=1;i<left_line_count;i++)
     {
+        ips200_draw_line(gray_map_x(left_line_points[i-1][0]), gray_map_y(left_line_points[i-1][1]),
+                         gray_map_x(left_line_points[i][0]),   gray_map_y(left_line_points[i][1]),
+                         RGB565_BLUE);
         ips200_draw_line(edge_map_x(left_line_points[i-1][0]), edge_map_y(left_line_points[i-1][1]),
                          edge_map_x(left_line_points[i][0]),   edge_map_y(left_line_points[i][1]),
                          RGB565_BLUE);
@@ -259,12 +274,15 @@ void show_draw_edges(void)
     // 右边线：红色
     for(i=1;i<right_line_count;i++)
     {
+        ips200_draw_line(gray_map_x(right_line_points[i-1][0]), gray_map_y(right_line_points[i-1][1]),
+                         gray_map_x(right_line_points[i][0]),   gray_map_y(right_line_points[i][1]),
+                         RGB565_RED);
         ips200_draw_line(edge_map_x(right_line_points[i-1][0]), edge_map_y(right_line_points[i-1][1]),
                          edge_map_x(right_line_points[i][0]),   edge_map_y(right_line_points[i][1]),
                          RGB565_RED);
     }
 
-    // 中线：绿色（逐行对齐版：按y行取左右线x的中点，单边行用±TRACK_HALF_W虚拟）
+    // 中线：绿色，仅使用左右边线同时有效的行
     {
         int16 lx[MT9V03X_H], rx[MT9V03X_H];
         int16 y2, mx;
@@ -281,29 +299,22 @@ void show_draw_edges(void)
                 && rx[right_line_points[i][1]] < 0)
                 rx[right_line_points[i][1]] = right_line_points[i][0];
 
-        // 从近端(底部)往远端逐行连线；mem_half 记忆最近一次双边行的实测半宽（像素）
-        int16 mem_half = TRACK_HALF_W;
+        // 从近端(底部)往远端逐行连线，只绘制双边同时有效的中线
         for (y2 = MT9V03X_H - 1; y2 >= 0; y2--)
         {
             if (lx[y2] >= 0 && rx[y2] >= 0)
             {
                 mx = (lx[y2] + rx[y2]) / 2;   //双边:真中点
-                mem_half = (rx[y2] - lx[y2]) / 2;   //更新实测半宽
-                if (mem_half < 4) mem_half = 4;     //防异常
             }
-            else if (lx[y2] >= 0)
-            {
-                mx = lx[y2] + mem_half;   //仅左线:向赛道中心(右)补实测半宽
-            }
-            else if (rx[y2] >= 0)
-            {
-                mx = rx[y2] - mem_half;   //仅右线:向赛道中心(左)补实测半宽
-            }
-            else { prev_x = -1; continue; }     //该行无线:断开,下段重新起笔
+            else { prev_x = -1; continue; }     //必须双边同时有效，单边不绘制中线
 
             if (prev_x >= 0)
+            {
+                ips200_draw_line(gray_map_x(prev_x), gray_map_y(prev_y),
+                                 gray_map_x(mx), gray_map_y(y2), RGB565_GREEN);
                 ips200_draw_line(edge_map_x(prev_x), edge_map_y(prev_y),
                                  edge_map_x(mx), edge_map_y(y2), RGB565_GREEN);
+            }
             prev_x = mx;
             prev_y = y2;
         }
@@ -344,23 +355,43 @@ void show_draw_edges(void)
     // 调试：前瞻点十字（蓝色）+ 迷宫法起始行横线（黄色）
     {
         uint16 px = edge_map_x(mid), py = edge_map_y(mid_y);
+        uint16 gpx = gray_map_x(mid), gpy = gray_map_y(mid_y);
         uint16 py0 = (py > 4) ? (py - 4) : 0;
         uint16 py1 = (py < 76) ? (py + 4) : 79;   // 竖线终点限幅
         uint16 px0 = (px > 4) ? (px - 4) : 0;     // 横线起点限幅(防下溢)
         uint16 px1 = (px < 236) ? (px + 4) : 239; // 横线终点限幅(防x2>=240断言)
         ips200_draw_line(px0, py, px1, py, RGB565_BLUE);
         ips200_draw_line(px, py0, px, py1, RGB565_BLUE);
+        ips200_draw_line((gpx > 4) ? gpx - 4 : 0, gpy,
+                         (gpx < 121) ? gpx + 4 : 125, gpy, RGB565_BLUE);
+        ips200_draw_line(gpx, (gpy > 4) ? gpy - 4 : 0,
+                         gpx, (gpy < 75) ? gpy + 4 : 79, RGB565_BLUE);
     }
     if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
     {
+        uint16 sy = edge_map_y(maze_start_y);
+        uint16 gsy = gray_map_y(maze_start_y);
         ips200_draw_line(edge_map_x(0), edge_map_y(maze_start_y),
                          edge_map_x(MT9V03X_W - 1), edge_map_y(maze_start_y), RGB565_YELLOW);
+        ips200_draw_line(gray_map_x(0), gray_map_y(maze_start_y),
+                         gray_map_x(MT9V03X_W - 1), gray_map_y(maze_start_y), RGB565_YELLOW);
+        if (maze_start_left_x >= 0 && maze_start_right_x >= 0)
+        {
+            ips200_draw_line(edge_map_x(maze_start_left_x), (sy > 3) ? sy - 3 : 0,
+                             edge_map_x(maze_start_left_x), (sy < 76) ? sy + 3 : 79, RGB565_YELLOW);
+            ips200_draw_line(edge_map_x(maze_start_right_x), (sy > 3) ? sy - 3 : 0,
+                             edge_map_x(maze_start_right_x), (sy < 76) ? sy + 3 : 79, RGB565_YELLOW);
+            ips200_draw_line(gray_map_x(maze_start_left_x), (gsy > 3) ? gsy - 3 : 0,
+                             gray_map_x(maze_start_left_x), (gsy < 76) ? gsy + 3 : 79, RGB565_YELLOW);
+            ips200_draw_line(gray_map_x(maze_start_right_x), (gsy > 3) ? gsy - 3 : 0,
+                             gray_map_x(maze_start_right_x), (gsy < 76) ? gsy + 3 : 79, RGB565_YELLOW);
+        }
     }}
 void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
     // mt9v03x_finish_flag 在图像处理前会被清零，不能作为显示门控。
-    if (!display_flog) return;    // 发车后关闭屏幕刷新（省CPU），停车恢复
+    if (!display_flog) return;
     ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
     // 鸟瞰图显示已删除（用户要求）
@@ -706,7 +737,7 @@ void key4_double_click_start(void)
                 total_distance_m = 0;
                 avg_speed = 0;
                 encoder_measure_flag = 1;
-                display_flog = 0;         // 发车：关闭屏幕刷新
+                display_flog = 1;         // 发车后继续显示巡线调试图
                 key4_first = 0;
             }
             else

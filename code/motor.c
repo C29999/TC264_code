@@ -91,6 +91,12 @@ int16 differential_add_speed2(int16 aim, float turn)
 }
 void speed_control(void)
 {
+    // 未按下发车键时保持电机硬停，避免 PWM/PID 初始化瞬间抽动。
+    if (!encoder_measure_flag && !stop_flog)
+    {
+        go_motor(0, 0);
+        return;
+    }
     int16 min_pts = (rpts0s_num < rpts1s_num) ? rpts1s_num : rpts0s_num;
     int16 straight_need = (int16)(1.2f / sample_dist);
     int16 dynamic_speed;

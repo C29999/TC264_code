@@ -37,6 +37,9 @@ extern float mx_rate_limit;   // 中线单帧最大变化
 extern float corner_buz_th;   // 大弯道蜂鸣阈值
 extern int16 buzzer_tick;     // 蜂鸣器剩余响帧数
 extern uint16 state_flags;       // 取线分支状态位
+extern int16 track_protect_scan_row;
+extern int16 track_protect_black_threshold;
+extern uint8 track_protect_black_frames;
 
 
 void data_init(void);
