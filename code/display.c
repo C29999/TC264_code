@@ -1,4 +1,5 @@
 #include "display.h"
+#include "image.h"
 #include "pid.h"
 #include "data.h"
 #include "isr.h"
@@ -367,6 +368,65 @@ void show_draw_edges(void)
         ips200_draw_line(gpx, (gpy > 4) ? gpy - 4 : 0,
                          gpx, (gpy < 75) ? gpy + 4 : 79, RGB565_BLUE);
     }
+
+    /* 近端十字角点：使用 find_corners() 输出的 rpts0s/rpts1s 坐标。 */
+    {
+        int16 cx, cy;
+        uint16 dx, dy, dx0, dx1, dy0, dy1;
+        if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
+        {
+            cx = (int16)(rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter);
+            cy = (int16)(rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter);
+            dx = edge_map_x(cx); dy = edge_map_y(cy);
+            dx0 = (dx > 5) ? dx - 5 : 0; dx1 = (dx < 234) ? dx + 5 : 239;
+            dy0 = (dy > 5) ? dy - 5 : 0; dy1 = (dy < 74) ? dy + 5 : 79;
+            ips200_draw_line(dx0, dy, dx1, dy, RGB565_MAGENTA);
+            ips200_draw_line(dx, dy0, dx, dy1, RGB565_MAGENTA);
+            dx = gray_map_x(cx); dy = gray_map_y(cy);
+            dx0 = (dx > 5) ? dx - 5 : 0; dx1 = (dx < 121) ? dx + 5 : 126;
+            dy0 = (dy > 5) ? dy - 5 : 0; dy1 = (dy < 74) ? dy + 5 : 79;
+            ips200_draw_line(dx0, dy, dx1, dy, RGB565_MAGENTA);
+            ips200_draw_line(dx, dy0, dx, dy1, RGB565_MAGENTA);
+        }
+        if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+        {
+            cx = (int16)(rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter);
+            cy = (int16)(rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter);
+            dx = edge_map_x(cx); dy = edge_map_y(cy);
+            dx0 = (dx > 5) ? dx - 5 : 0; dx1 = (dx < 234) ? dx + 5 : 239;
+            dy0 = (dy > 5) ? dy - 5 : 0; dy1 = (dy < 74) ? dy + 5 : 79;
+            ips200_draw_line(dx0, dy, dx1, dy, RGB565_MAGENTA);
+            ips200_draw_line(dx, dy0, dx, dy1, RGB565_MAGENTA);
+            dx = gray_map_x(cx); dy = gray_map_y(cy);
+            dx0 = (dx > 5) ? dx - 5 : 0; dx1 = (dx < 121) ? dx + 5 : 126;
+            dy0 = (dy > 5) ? dy - 5 : 0; dy1 = (dy < 74) ? dy + 5 : 79;
+            ips200_draw_line(dx0, dy, dx1, dy, RGB565_MAGENTA);
+            ips200_draw_line(dx, dy0, dx, dy1, RGB565_MAGENTA);
+        }
+        /* 远端角点使用黄色十字，便于与近端紫色十字区分。 */
+        if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+        {
+            cx = (int16)(far_rpts0s[far_Lpt0_rpts0s_id][0] * pixel_per_meter);
+            cy = (int16)(far_rpts0s[far_Lpt0_rpts0s_id][1] * pixel_per_meter);
+            dx = edge_map_x(cx); dy = edge_map_y(cy);
+            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 235) ? dx + 4 : 239, dy, RGB565_YELLOW);
+            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
+            dx = gray_map_x(cx); dy = gray_map_y(cy);
+            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 122) ? dx + 4 : 126, dy, RGB565_YELLOW);
+            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
+        }
+        if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+        {
+            cx = (int16)(far_rpts1s[far_Lpt1_rpts1s_id][0] * pixel_per_meter);
+            cy = (int16)(far_rpts1s[far_Lpt1_rpts1s_id][1] * pixel_per_meter);
+            dx = edge_map_x(cx); dy = edge_map_y(cy);
+            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 235) ? dx + 4 : 239, dy, RGB565_YELLOW);
+            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
+            dx = gray_map_x(cx); dy = gray_map_y(cy);
+            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 122) ? dx + 4 : 126, dy, RGB565_YELLOW);
+            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
+        }
+    }
     if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
     {
         uint16 sy = edge_map_y(maze_start_y);
@@ -387,6 +447,28 @@ void show_draw_edges(void)
                              gray_map_x(maze_start_right_x), (gsy < 76) ? gsy + 3 : 79, RGB565_YELLOW);
         }
     }}
+static void show_perspective_gray_boundary(void)
+{
+    uint16 i;
+    const uint16 yoff = 188;
+    ips200_show_gray_image(127, yoff, (const uint8 *)img_pers_data, PERS_W, PERS_H, 110, 72, 0);
+    for (i = 1; i < rpts0s_num; i++)
+        ips200_draw_line(edge_map_x((int16)(rpts0s[i-1][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts0s[i-1][1]*pixel_per_meter)), edge_map_x((int16)(rpts0s[i][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts0s[i][1]*pixel_per_meter)), RGB565_BLUE);
+    for (i = 1; i < rpts1s_num; i++)
+        ips200_draw_line(edge_map_x((int16)(rpts1s[i-1][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts1s[i-1][1]*pixel_per_meter)), edge_map_x((int16)(rpts1s[i][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts1s[i][1]*pixel_per_meter)), RGB565_RED);
+    if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
+    {
+        uint16 x=edge_map_x((int16)(rpts0s[Lpt0_rpts0s_id][0]*pixel_per_meter));
+        uint16 y=yoff+edge_map_y((int16)(rpts0s[Lpt0_rpts0s_id][1]*pixel_per_meter));
+        ips200_draw_line(x-4,y,x+4,y,RGB565_MAGENTA); ips200_draw_line(x,y-4,x,y+4,RGB565_MAGENTA);
+    }
+    if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+    {
+        uint16 x=edge_map_x((int16)(rpts1s[Lpt1_rpts1s_id][0]*pixel_per_meter));
+        uint16 y=yoff+edge_map_y((int16)(rpts1s[Lpt1_rpts1s_id][1]*pixel_per_meter));
+        ips200_draw_line(x-4,y,x+4,y,RGB565_MAGENTA); ips200_draw_line(x,y-4,x,y+4,RGB565_MAGENTA);
+    }
+}
 void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
@@ -394,7 +476,7 @@ void display_draw(void)
     if (!display_flog) return;
     ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
-    // 鸟瞰图显示已删除（用户要求）
+    show_perspective_gray_boundary();
     // ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
     show_draw_edges();
 

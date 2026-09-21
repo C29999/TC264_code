@@ -1,4 +1,5 @@
 #include "wifi_spi.h"
+#include "image.h"
 
 #include "math.h"
 #include <stdio.h>
@@ -105,13 +106,19 @@ void wifi_boundary_send(void)
     static seekfree_assistant_camera_boundary_struct boundary_r_obj;
     static seekfree_assistant_camera_boundary_struct center_obj;
     static seekfree_assistant_camera_boundary_struct lookahead_obj;
+    static seekfree_assistant_camera_boundary_struct corner_near_obj;
+    static seekfree_assistant_camera_boundary_struct corner_far_obj;
     uint8 center_points[MT9V03X_H][2];
     uint8 lookahead_point[1][2];
+    uint8 corner_near[2][2];
+    uint8 corner_far[2][2];
     uint16 left_points_half[(IPTS_MAX + 1) / 2][2];
     uint16 right_points_half[(IPTS_MAX + 1) / 2][2];
     uint16 left_half_count = 0;
     uint16 right_half_count = 0;
     uint16 center_count = 0;
+    uint16 near_count = 0;
+    uint16 far_count = 0;
     int16 y;
     uint16 i;
     if (!wifi_send_ready || !wifi_flag)
@@ -193,11 +200,49 @@ void wifi_boundary_send(void)
             1, lookahead_point);
         seekfree_assistant_camera_boundary_send(&lookahead_obj);
     }
+
+    /* 四个角点叠加到上位机二值图：近端紫色，远端黄色。 */
+    if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
+    {
+        corner_near[near_count][0] = (uint8)clip((int16)(rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        corner_near[near_count][1] = (uint8)clip((int16)(rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        near_count++;
+    }
+    if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+    {
+        corner_near[near_count][0] = (uint8)clip((int16)(rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        corner_near[near_count][1] = (uint8)clip((int16)(rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        near_count++;
+    }
+    if (near_count > 0)
+    {
+        seekfree_assistant_camera_boundary_config(&corner_near_obj,
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0xF81F, near_count, corner_near);
+        seekfree_assistant_camera_boundary_send(&corner_near_obj);
+    }
+    if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+    {
+        corner_far[far_count][0] = (uint8)clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        corner_far[far_count][1] = (uint8)clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        far_count++;
+    }
+    if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+    {
+        corner_far[far_count][0] = (uint8)clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        corner_far[far_count][1] = (uint8)clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        far_count++;
+    }
+    if (far_count > 0)
+    {
+        seekfree_assistant_camera_boundary_config(&corner_far_obj,
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0x07FF, far_count, corner_far);
+        seekfree_assistant_camera_boundary_send(&corner_far_obj);
+    }
 }
 void wifi_debug_data(void)
 {
     static seekfree_assistant_oscilloscope_struct scope_obj;
-    static float scope_data[1];
+    static float scope_data[9];
     static uint8 scope_configured = 0;
 
     if (!wifi_send_ready || !wifi_flag)
@@ -206,24 +251,83 @@ void wifi_debug_data(void)
     }
     if (!scope_configured)
     {
-        seekfree_assistant_oscilloscope_config(&scope_obj, 1, scope_data);
+        /* CH1 车速；CH2~CH9 为四个角点的 x/y 像素坐标。无效点为 -1。 */
+        seekfree_assistant_oscilloscope_config(&scope_obj, 9, scope_data);
         scope_configured = 1;
     }
     /* CH1：两轮编码器当前速度的平均值（编码器计数/10ms）。 */
     scope_data[0] = ((float)encoder_left + (float)encoder_right) * 0.5f;
+    scope_data[1] = -1.0f; scope_data[2] = -1.0f;
+    scope_data[3] = -1.0f; scope_data[4] = -1.0f;
+    scope_data[5] = -1.0f; scope_data[6] = -1.0f;
+    scope_data[7] = -1.0f; scope_data[8] = -1.0f;
+    if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
+    {
+        scope_data[1] = rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter;
+        scope_data[2] = rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter;
+    }
+    if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+    {
+        scope_data[3] = rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter;
+        scope_data[4] = rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter;
+    }
+    if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+    {
+        scope_data[5] = far_orig0[far_Lpt0_rpts0s_id][0];
+        scope_data[6] = far_orig0[far_Lpt0_rpts0s_id][1];
+    }
+    if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+    {
+        scope_data[7] = far_orig1[far_Lpt1_rpts1s_id][0];
+        scope_data[8] = far_orig1[far_Lpt1_rpts1s_id][1];
+    }
     seekfree_assistant_oscilloscope_send(&scope_obj);
+}
+
+/* ================ 角点文本发送：$CORNERS NLx,NLy,NRx,NRy,FLx,FLy,FRx,FRy\r\n ================
+ * 原图 188x120 像素坐标，可直接叠加到上位机二值图上。
+ * 无效角点输出 -1。与 wifi_boundary_send 的近端紫/远端黄角点同源（Lpt0/Lpt1/far_Lpt0/far_Lpt1）。 */
+void wifi_corner_send(void)
+{
+    static char corner_buf[96];
+    int16 nl_x = -1, nl_y = -1, nr_x = -1, nr_y = -1;
+    int16 fl_x = -1, fl_y = -1, fr_x = -1, fr_y = -1;
+    if (!wifi_send_ready || !wifi_flag)
+    {
+        return;
+    }
+    if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
+    {
+        nl_x = clip((int16)(rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        nl_y = clip((int16)(rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+    }
+    if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+    {
+        nr_x = clip((int16)(rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        nr_y = clip((int16)(rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+    }
+    if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+    {
+        fl_x = clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        fl_y = clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+    }
+    if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+    {
+        fr_x = clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+        fr_y = clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+    }
+    sprintf(corner_buf, "$CORNERS %d,%d,%d,%d,%d,%d,%d,%d\r\n",
+            nl_x, nl_y, nr_x, nr_y, fl_x, fl_y, fr_x, fr_y);
+    wifi_spi_send_string(corner_buf);
 }
 
 void wifi_debug(void)
 {
-    static uint8 image_divider = 0;
-    if (++image_divider >= 6)
-    {
-        image_divider = 0;
-        /* 上位机先收齐本帧叠加点，再由最后到达的二值图统一刷新画面。 */
-        wifi_boundary_send();
-        wifi_image_send();
-    }
+    /* 二值图打包仅 2.8KB/帧，每帧都发，由主循环 WIFI_IMAGE_PERIOD_MS=50 限频到 20fps。
+     * 先发送本帧二值图，再发送同一帧的边界和角点，避免上位机叠加上一帧坐标。 */
+    wifi_image_send();
+    wifi_boundary_send();
+    wifi_corner_send();
 }
 
 /* ================ WiFi 接收解析：$SPEED num1,num2 ================ */

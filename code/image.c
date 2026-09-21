@@ -436,7 +436,8 @@ void anti_perspective_fast(void)
             sy = invy[j][i];
             if (sx >= 0 && sy >= 0 && sy < MT9V03X_H && sx < MT9V03X_W)
             {
-                img_pers_data[j][i] = mt9v03x_image[sy][sx];
+                /* 鸟瞰调试图直接保存二值结果，避免再分配一块 22 KB 缓冲。 */
+                img_pers_data[j][i] = image_binary[sy][sx];
             }
             else
             {
@@ -445,7 +446,7 @@ void anti_perspective_fast(void)
         }
     }
 }
-static void findline_lefthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count)
+void findline_lefthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count)
 {
     uint16 max_points = *point_count;
     uint16 step = 0;
@@ -501,7 +502,7 @@ static void findline_lefthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x
     *point_count = step + 1;
 }
 
-static void findline_righthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count)
+void findline_righthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count)
 {
     uint16 max_points = *point_count;
     uint16 step = 0;
@@ -976,8 +977,7 @@ void calculation_error(void)
         uint8 buz_now = (fabsf(corner_turn) > corner_buz_th) ? 1 : 0;
         if (buz_now && !buz_prev) buzzer_tick = 8;   // 响约 8 帧（60~120fps 时约 70~130ms）
         buz_prev = buz_now;
-        if (buzzer_tick > 0) { buzzer_tick--; beep_on(); }
-        else                 { beep_off(); }
+        /* 递减与 beep_on/off 统一在 beeper_poll()（process_edge_points 末尾）执行 */
     }
     //车头指向前瞻点的向量（y轴指向车，dy>0 表示目标在前方）
     dx = mx - cx;
@@ -1087,6 +1087,7 @@ int16 far_Lpt0_found = 0, far_Lpt1_found = 0;     // 1=找到远端角点
 
 /* 远端边线段（十字内部导航时切到远端边线算偏差） */
 float far_rpts0s[POINTS_MAX_LEN][2]; float far_rpts1s[POINTS_MAX_LEN][2];
+float far_orig0[POINTS_MAX_LEN][2]; float far_orig1[POINTS_MAX_LEN][2];
 int16 far_rpts0s_num = 0, far_rpts1s_num = 0;     // 远端边线实际点数
 
 /* 直线度 + 置信度（用于区分直道/弯道/十字） */
@@ -1330,6 +1331,9 @@ void process_edge_points(void)
 {
     int16 i;
 
+    /* 每帧先生成逆透视灰度图，供屏幕调试和远端角点使用。 */
+    anti_perspective_fast();
+
     /* ---- L0：int16 → float 直接复制 ---- */
     rpts0_num=(int16)left_line_count;
     rpts1_num=(int16)right_line_count;
@@ -1374,7 +1378,10 @@ void process_edge_points(void)
     rpts1an_num=rpts1s_num;
 
     
-   // find_corners();
-   // find_far_corners();
+    /* 每帧更新近端十字角点结果，显示层只读取结果，不参与判定。 */
+    find_corners();
+    find_far_corners();
+    cross_line_completion();   /* 十字补线：四角点有效时把左右边线补成连续虚拟线（巡线用） */
+    beeper_poll();             /* 蜂鸣器统一输出：大弯道 + 十字（四角点齐哔哔哔） */
     
 }

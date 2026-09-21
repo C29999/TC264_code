@@ -36,6 +36,7 @@ extern float corner_mismatch_th;   // 两侧边线形态差阈值
 extern float mx_rate_limit;   // 中线单帧最大变化
 extern float corner_buz_th;   // 大弯道蜂鸣阈值
 extern int16 buzzer_tick;     // 蜂鸣器剩余响帧数
+extern int16 cross_buzz_times; // 检测到四个十字角点时蜂鸣器响的次数
 extern uint16 state_flags;       // 取线分支状态位
 extern int16 track_protect_scan_row;
 extern int16 track_protect_black_threshold;

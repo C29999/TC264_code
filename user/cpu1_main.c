@@ -62,8 +62,8 @@ void core1_main(void)
         static uint32 last_wifi_data_ms = 0;
         static uint32 last_wifi_rx_ms = 0;
         const uint32 DISPLAY_REFRESH_MS = 100;
-        // 边线数据每帧发送；原始灰度图约 22.5KB/帧，低频发送避免 TCP 堵塞和十几秒延迟
-        const uint32 WIFI_IMAGE_PERIOD_MS = 40;
+        // 边线数据每帧发送；二值图打包后约 2.8KB/帧（188*120/8），33ms 周期 = 30fps
+        const uint32 WIFI_IMAGE_PERIOD_MS = 33;
         const uint32 WIFI_DATA_PERIOD_MS = 100;
         // WiFi SPI 主动收包会等待模块响应，只在停车待命时低频轮询遥控命令。
         if (!encoder_measure_flag && wifi_remote_ready() &&
