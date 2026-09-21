@@ -32,7 +32,6 @@ int16 maze_start_y = 0;      // 迷宫法实际起始行（find_binary_start 定
 int16 maze_start_left_x = -1;
 int16 maze_start_right_x = -1;
 // 二值图中白色像素的判断阈值。
-#define EDGE_WHITE_THRESHOLD (128)
 #define BINARY_START_MIN_WIDTH (8)
 #define BINARY_START_MAX_WIDTH (PERS_W - 8)
 
@@ -687,6 +686,8 @@ static void track_lane_by_rows(const uint8 binary[PERS_H][PERS_W],
     int16 previous_center = (start_left + start_right) / 2;
     int16 previous_width = start_right - start_left + 1;
     uint8 miss_count = 0;
+    uint8 saw_touch_l = 0;   /* 巡线中出现贴左边缘白段（横路贯通/弯内触界） */
+    uint8 saw_touch_r = 0;
 
     left_line_count = 0;
     right_line_count = 0;
@@ -714,6 +715,14 @@ static void track_lane_by_rows(const uint8 binary[PERS_H][PERS_W],
             width = run_right - run_left + 1;
             center = (run_left + run_right) / 2;
             center_jump = abs(center - previous_center);
+
+            /* 贴边宽白段：横路贯通到图像边缘（十字单角点判据），弯内触界也会置位，
+             * 但十字识别还要求对侧折角，不会误判。 */
+            if (width >= BINARY_START_MIN_WIDTH)
+            {
+                if (run_left <= 1) saw_touch_l = 1;
+                if (run_right >= PERS_W - 2) saw_touch_r = 1;
+            }
 
             if (run_left <= 1 || run_right >= PERS_W - 2 ||
                 width < BINARY_START_MIN_WIDTH || width > BINARY_START_MAX_WIDTH ||
@@ -745,6 +754,8 @@ static void track_lane_by_rows(const uint8 binary[PERS_H][PERS_W],
         previous_center = (best_left + best_right) / 2;
         previous_width = best_right - best_left + 1;
     }
+    if (saw_touch_l) touch_boundary0 = 1;
+    if (saw_touch_r) touch_boundary1 = 1;
 }
 
 void find_edges_binary(void)
@@ -792,6 +803,52 @@ void calculation_error(void)
 
     lookahead_lx = -1;
     lookahead_rx = -1;
+
+#if CROSS_ENABLE
+    /* ===== 十字中（enter/out）：导航目标钉在对面路口中心 cross_max_x =====
+     * 移植自 STC32 例程 pure_track：cross_flag>1 时 pure_angle = max_x - 中线。
+     * 本车 pure_angle 为纯跟踪角度量纲，故用路口中心构造虚拟前瞻点，
+     * 走与正常巡线同一套 pure pursuit + 低通 + 限幅，保证量纲/手感一致。 */
+    if (cross_flag >= CR_ENTER)
+    {
+        static float last_cross_angle = 0.0f;
+        /* enter 首帧/列行扫描暂时失败：温和保持上一帧转向，
+         * 绝不能落到横路乱边线上巡线 */
+        if (cross_far_y <= 0 || cross_max_x <= 0)
+        {
+            state_flags = 0x40;
+            pure_angle *= 0.95f;
+            image_error_filter = (int16)pure_angle;
+            return;
+        }
+        float cmx = cross_max_x / pixel_per_meter;
+        float cmy = cross_far_y / pixel_per_meter;
+        float cdx = cmx - cx;
+        float cdy = cy - cmy + 0.2f;
+        float cdn = sqrtf(cdx * cdx + cdy * cdy);
+        float cnew;
+        float cd;
+        lookahead_y = cross_far_y;
+        lookahead_lx = (cross_edge_l >= 0) ? cross_edge_l : -1;
+        lookahead_rx = (cross_edge_r >= 0) ? cross_edge_r : -1;
+        state_flags = 0x04;
+        if (cdn > 0.01f)
+        {
+            pure_rad = -atanf(2.0f * 0.3f * cdx / (cdn * cdn));
+            cnew = pure_rad * 57.2958f / SMOTOR_RATE;
+            if (fabsf(cnew) < 1.0f) cnew = 0.0f;
+            pure_angle = cnew * 0.35f + pure_angle * 0.65f;
+            cd = pure_angle - last_cross_angle;
+            if (cd >  4.0f) cd =  4.0f;
+            if (cd < -4.0f) cd = -4.0f;
+            pure_angle = last_cross_angle + cd;
+            last_cross_angle = pure_angle;
+        }
+        image_error_filter = (int16)pure_angle;
+        return;
+    }
+#endif  /* CROSS_ENABLE */
+
     if (maze_start_y < 0 || rpts0s_num < 2 || rpts1s_num < 2)
     {
         state_flags = 0x40;
@@ -1020,6 +1077,16 @@ void track_protection(void)
     int16 scan_y = (track_protect_scan_row > 0) ? track_protect_scan_row : maze_start_y;
     int16 black_count = 0;
     int16 x;
+
+#if CROSS_ENABLE
+    /* 十字内部可能暂时没有常规双边线，由十字状态机负责驶出判定。 */
+    if (cross_flag >= CR_ENTER)
+    {
+        stop_outline_count = 0;
+        stop_black_count = 0;
+        return;
+    }
+#endif
 
     if (scan_y < 0) scan_y = 0;
     if (scan_y >= MT9V03X_H) scan_y = MT9V03X_H - 1;
@@ -1378,10 +1445,22 @@ void process_edge_points(void)
     rpts1an_num=rpts1s_num;
 
     
-    /* 每帧更新近端十字角点结果，显示层只读取结果，不参与判定。 */
+    /* 近端角点只作为十字候选触发器；NONE 状态不显示、不上报、不改寻线数据。 */
     find_corners();
-    find_far_corners();
-    cross_line_completion();   /* 十字补线：四角点有效时把左右边线补成连续虚拟线（巡线用） */
-    beeper_poll();             /* 蜂鸣器统一输出：大弯道 + 十字（四角点齐哔哔哔） */
+#if CROSS_ENABLE
+    /* 四角点检测只读原图；四点齐全后状态机才允许进入十字候选。 */
+    find_far_corners_crawl();
+    cross_line_completion();
+    if (cross_flag >= CR_ENTER)
+        find_cross_center();
+#else
+    far_Lpt0_found = far_Lpt1_found = 0;
+    far_Lpt0_rpts0s_id = far_Lpt1_rpts1s_id = -1;
+    far_rpts0s_num = far_rpts1s_num = 0;
+    crawl_show_ymax = -1;
+#endif
+    /* START 用锁存四角点；ENTER/OUT 用车头到对面入口的动态导航走廊。 */
+    cross_build_vlines();
+    beeper_poll();             /* 蜂鸣器统一输出：大弯道 + 十字（关闭时只剩大弯道） */
     
 }

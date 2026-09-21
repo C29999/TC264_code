@@ -12,6 +12,7 @@
 /* ================ 鸟瞰图（逆透视） ================ */
 #define PERS_W  MT9V03X_W    // 鸟瞰图宽 188，与屏幕窗口/原图同构
 #define PERS_H  MT9V03X_H    // 鸟瞰图高 120
+#define EDGE_WHITE_THRESHOLD (128)   // 二值图白色像素判定阈值（element.c 扫描共用）
 
 // 轻量图像描述符（与国一 image_t 一致，方便逐行移植国一函数）
 typedef struct image
@@ -31,6 +32,7 @@ extern int16 maze_start_left_x, maze_start_right_x;
 extern int16 lookahead_lx, lookahead_rx, lookahead_y;   // 前瞻行左右边界点(原图像素,-1=无)
 
 extern uint8 image_binary[MT9V03X_H][MT9V03X_W];
+extern uint8 wifi_scratch_buf[];   /* WiFi打包/爬线轮廓共用scratch，见wifi_spi.c */
 extern int16 left_line_points[IPTS_MAX][2];
 extern int16 right_line_points[IPTS_MAX][2];
 extern uint16 left_line_count;
@@ -90,8 +92,33 @@ extern int16  far_rpts0s_num, far_rpts1s_num;
 extern int16 is_straight0, is_straight1;
 extern float conf1, conf2, conf1_max, conf2_max;
 
-/* ================ 十字补线状态 ================ */
-extern uint8 cross_line_active;   // 1=十字补线正在生效（蜂鸣同源触发 / 调试）
+/* ================ 十字状态机（移植 STC32 例程：折角角点+路口中心导航） ================ */
+/* 十字检测总开关：1=启用（折角识别+状态机+路口中心接管转向+十字蜂鸣）；
+ *                 0=完全旁路，回到纯巡线（不截断边线、不接管转向、不响十字）。
+ *                 大弯道蜂鸣与 WiFi 协议不受影响（关闭时角点/中线均发 -1）。 */
+#define CROSS_ENABLE 1   /* 1=启用十字状态机与路口中心导航 */
+/* 十字状态：element.c 定义 cross_flag，image.c/wifi_spi.c 共同消费 */
+typedef enum { CR_NONE = 0, CR_START = 1, CR_ENTER = 2, CR_OUT = 3 } cross_state_t;
+extern uint8 cross_flag;          // 当前十字状态（0无 1发现近端角点 2十字中 3驶出）
+extern int16 cross_max_x;         // 对面路口中心 x（原图像素，enter/out 导航目标）
+extern int16 cross_far_y;         // 对面路口所在行（原图像素，-1=无效）
+extern int16 cross_edge_l, cross_edge_r;  // 对面路口左右边缘（原图像素，显示用）
+
+extern uint8 cross_line_active;   // 1=十字状态机激活中（蜂鸣同源触发 / 调试）
+// 补线锁存角点（原图像素），cross_line_active 期间有效，上位机持续显示用
+extern int16 cross_hold_nl_x, cross_hold_nl_y;
+extern int16 cross_hold_nr_x, cross_hold_nr_y;
+extern int16 cross_hold_fl_x, cross_hold_fl_y;
+extern int16 cross_hold_fr_x, cross_hold_fr_y;
+
+/* ================ 四角点虚拟补线（屏幕/WiFi 显示 + 十字区域巡线导航） ================ */
+/* cross_vline_valid=1 时四角点像素坐标有效：
+ *   虚拟左边线 NL-FL、虚拟右边线 NR-FR（补出十字横路段断开的边线）；
+ *   虚拟中线 M0→M1（M0=近端两角点中点，M1=远端两角点中点）。 */
+extern uint8  cross_vline_valid;
+extern int16 cv_nl_x, cv_nl_y, cv_nr_x, cv_nr_y;   // 近端左/右角点（像素）
+extern int16 cv_fl_x, cv_fl_y, cv_fr_x, cv_fr_y;   // 远端左/右角点（像素）
+extern int16 cv_m0_x, cv_m0_y, cv_m1_x, cv_m1_y;   // 虚拟中线近端/远端点（像素）
 
 #define IMG_ANGLE_TO_RAD(deg) (deg)*3.1415926f/180.0f
 
@@ -103,9 +130,13 @@ void  blur_points(float pts_in[][2], int16 num, float pts_out[][2], int16 kernel
 void  resample_points(float pts_in[][2], int16 num1, float pts_out[][2], int16 *num2, float dist);//重采样
 void  local_angle_points(float pts_in[][2], int16 num, float angle_out[], int16 dist);//计算局部角度
 void  nms_angle(float angle_in[], int16 num, float angle_out[], int16 kernel);//非极大值抑制
-void  find_corners(void);//查找角点
-void  find_far_corners(void);//查找远端角点
-void  cross_line_completion(void);//十字补线：四角点有效时把断开的边界线补成连续虚拟线
+void find_corners(void);//查找角点
+void find_far_corners_crawl(void);//近端角点向上爬黑白边界找远端外角点 FL/FR
+void cross_build_vlines(void);//START 锁存四角点补线；ENTER/OUT 生成动态导航走廊
+uint8 crawl_trace_pixel(int16 x, int16 y);//爬线轨迹位图查询（display.c 青色绘制）
+extern int16 crawl_show_ymax;//本帧爬线上界（-1=未爬，屏幕不画轨迹）
+void  find_cross_center(void);//十字中列+行扫描对面路口中心（非角点检测）
+void  cross_line_completion(void);//十字状态机：锁存角点、裁掉误边并推进阶段
 void  beeper_poll(void);//蜂鸣器统一输出：大弯道 + 十字（四角点齐哔哔哔）
 void findline_lefthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count);
 void findline_righthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count);

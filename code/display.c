@@ -255,36 +255,38 @@ void show_draw_edges(void)
                      edge_map_x(image_center), by + 80,
                      RGB565_YELLOW);
 
-    if (left_line_count == 0 && right_line_count == 0)
+    if (left_line_count == 0 && right_line_count == 0 && !cross_line_active)
     {
         show_red_bold(146, 32, "NO POINTS", RGB565_PINK);
-        return;
     }
 
-    // 左边线：蓝色
-    for(i=1;i<left_line_count;i++)
+    /* 普通/候选阶段原样显示旧寻线；ENTER/OUT 只显示十字动态走廊。 */
+    if (cross_flag < CR_ENTER)
     {
+        // 左边线：蓝色
+        for(i=1;i<left_line_count;i++)
+        {
         ips200_draw_line(gray_map_x(left_line_points[i-1][0]), gray_map_y(left_line_points[i-1][1]),
                          gray_map_x(left_line_points[i][0]),   gray_map_y(left_line_points[i][1]),
                          RGB565_BLUE);
         ips200_draw_line(edge_map_x(left_line_points[i-1][0]), edge_map_y(left_line_points[i-1][1]),
                          edge_map_x(left_line_points[i][0]),   edge_map_y(left_line_points[i][1]),
                          RGB565_BLUE);
-    }
+        }
 
-    // 右边线：红色
-    for(i=1;i<right_line_count;i++)
-    {
+        // 右边线：红色
+        for(i=1;i<right_line_count;i++)
+        {
         ips200_draw_line(gray_map_x(right_line_points[i-1][0]), gray_map_y(right_line_points[i-1][1]),
                          gray_map_x(right_line_points[i][0]),   gray_map_y(right_line_points[i][1]),
                          RGB565_RED);
         ips200_draw_line(edge_map_x(right_line_points[i-1][0]), edge_map_y(right_line_points[i-1][1]),
                          edge_map_x(right_line_points[i][0]),   edge_map_y(right_line_points[i][1]),
                          RGB565_RED);
-    }
+        }
 
-    // 中线：绿色，仅使用左右边线同时有效的行
-    {
+        // 中线：绿色，仅使用左右边线同时有效的行
+        {
         int16 lx[MT9V03X_H], rx[MT9V03X_H];
         int16 y2, mx;
         int16 prev_x = -1, prev_y = -1;
@@ -369,7 +371,8 @@ void show_draw_edges(void)
                          gpx, (gpy < 75) ? gpy + 4 : 79, RGB565_BLUE);
     }
 
-    /* 近端十字角点：使用 find_corners() 输出的 rpts0s/rpts1s 坐标。 */
+    /* 角点是十字分支内部数据，普通寻线状态不显示。 */
+    if (cross_line_active)
     {
         int16 cx, cy;
         uint16 dx, dy, dx0, dx1, dy0, dy1;
@@ -403,29 +406,83 @@ void show_draw_edges(void)
             ips200_draw_line(dx0, dy, dx1, dy, RGB565_MAGENTA);
             ips200_draw_line(dx, dy0, dx, dy1, RGB565_MAGENTA);
         }
-        /* 远端角点使用黄色十字，便于与近端紫色十字区分。 */
-        if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+        /* 远端外角点 FL/FR：爬黑白边界得到（find_far_corners_crawl），橙色十字。
+         * 爬线轨迹（外轮廓+洞轮廓）用青色点绘制，直观看到"从近端爬到远端"。 */
         {
-            cx = (int16)(far_rpts0s[far_Lpt0_rpts0s_id][0] * pixel_per_meter);
-            cy = (int16)(far_rpts0s[far_Lpt0_rpts0s_id][1] * pixel_per_meter);
-            dx = edge_map_x(cx); dy = edge_map_y(cy);
-            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 235) ? dx + 4 : 239, dy, RGB565_YELLOW);
-            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
-            dx = gray_map_x(cx); dy = gray_map_y(cy);
-            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 122) ? dx + 4 : 126, dy, RGB565_YELLOW);
-            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
+            int16 tx, ty;
+            const uint16 crawl_col = RGB565_CYAN;
+            const uint16 far_col   = 0xFD20;   /* RGB565 橙色 */
+            /* 爬线轨迹：扫描位图，只画近端角点上方的轮廓（隔列绘制控开销） */
+            if (crawl_show_ymax >= 0)
+            {
+                for (ty = 8; ty <= crawl_show_ymax + 6   /* CRAWL_Y_GAP */
+                            && ty < MT9V03X_H; ty++)
+                {
+                    for (tx = 0; tx < MT9V03X_W; tx += 2)
+                    {
+                        if (crawl_trace_pixel(tx, ty))
+                        {
+                            ips200_draw_point(edge_map_x(tx), edge_map_y(ty), crawl_col);
+                            ips200_draw_point(gray_map_x(tx), gray_map_y(ty), crawl_col);
+                        }
+                    }
+                }
+            }
+            if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0
+                && far_Lpt0_rpts0s_id < far_rpts0s_num)
+            {
+                int16 cx = (int16)far_orig0[far_Lpt0_rpts0s_id][0];
+                int16 cy = (int16)far_orig0[far_Lpt0_rpts0s_id][1];
+                uint16 dx = edge_map_x(cx), dy = edge_map_y(cy);
+                uint16 dx0 = (dx > 5) ? dx - 5 : 0, dx1 = (dx < 234) ? dx + 5 : 239;
+                uint16 dy0 = (dy > 5) ? dy - 5 : 0, dy1 = (dy < 74) ? dy + 5 : 79;
+                ips200_draw_line(dx0, dy, dx1, dy, far_col);
+                ips200_draw_line(dx, dy0, dx, dy1, far_col);
+                dx = gray_map_x(cx); dy = gray_map_y(cy);
+                dx0 = (dx > 5) ? dx - 5 : 0; dx1 = (dx < 121) ? dx + 5 : 126;
+                dy0 = (dy > 5) ? dy - 5 : 0; dy1 = (dy < 74) ? dy + 5 : 79;
+                ips200_draw_line(dx0, dy, dx1, dy, far_col);
+                ips200_draw_line(dx, dy0, dx, dy1, far_col);
+            }
+            if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0
+                && far_Lpt1_rpts1s_id < far_rpts1s_num)
+            {
+                int16 cx = (int16)far_orig1[far_Lpt1_rpts1s_id][0];
+                int16 cy = (int16)far_orig1[far_Lpt1_rpts1s_id][1];
+                uint16 dx = edge_map_x(cx), dy = edge_map_y(cy);
+                uint16 dx0 = (dx > 5) ? dx - 5 : 0, dx1 = (dx < 234) ? dx + 5 : 239;
+                uint16 dy0 = (dy > 5) ? dy - 5 : 0, dy1 = (dy < 74) ? dy + 5 : 79;
+                ips200_draw_line(dx0, dy, dx1, dy, far_col);
+                ips200_draw_line(dx, dy0, dx, dy1, far_col);
+                dx = gray_map_x(cx); dy = gray_map_y(cy);
+                dx0 = (dx > 5) ? dx - 5 : 0; dx1 = (dx < 121) ? dx + 5 : 126;
+                dy0 = (dy > 5) ? dy - 5 : 0; dy1 = (dy < 74) ? dy + 5 : 79;
+                ips200_draw_line(dx0, dy, dx1, dy, far_col);
+                ips200_draw_line(dx, dy0, dx, dy1, far_col);
+            }
         }
-        if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
-        {
-            cx = (int16)(far_rpts1s[far_Lpt1_rpts1s_id][0] * pixel_per_meter);
-            cy = (int16)(far_rpts1s[far_Lpt1_rpts1s_id][1] * pixel_per_meter);
-            dx = edge_map_x(cx); dy = edge_map_y(cy);
-            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 235) ? dx + 4 : 239, dy, RGB565_YELLOW);
-            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
-            dx = gray_map_x(cx); dy = gray_map_y(cy);
-            ips200_draw_line((dx > 4) ? dx - 4 : 0, dy, (dx < 122) ? dx + 4 : 126, dy, RGB565_YELLOW);
-            ips200_draw_line(dx, (dy > 4) ? dy - 4 : 0, dx, (dy < 75) ? dy + 4 : 79, RGB565_YELLOW);
         }
+    }
+    /* 四角点虚拟补线（cross_build_vlines）：黄色 NL-FL/NR-FR 补边线，
+     * 橙色 M0-M1 补中线。二值图窗口与原图窗口各画一遍。 */
+    if (cross_vline_valid)
+    {
+        const uint16 vl_edge_col = RGB565_YELLOW;
+        const uint16 vl_mid_col  = RGB565_MAGENTA;
+        /* 左补边线 NL-FL / 右补边线 NR-FR */
+        ips200_draw_line(edge_map_x(cv_nl_x), edge_map_y(cv_nl_y),
+                         edge_map_x(cv_fl_x), edge_map_y(cv_fl_y), vl_edge_col);
+        ips200_draw_line(edge_map_x(cv_nr_x), edge_map_y(cv_nr_y),
+                         edge_map_x(cv_fr_x), edge_map_y(cv_fr_y), vl_edge_col);
+        ips200_draw_line(gray_map_x(cv_nl_x), gray_map_y(cv_nl_y),
+                         gray_map_x(cv_fl_x), gray_map_y(cv_fl_y), vl_edge_col);
+        ips200_draw_line(gray_map_x(cv_nr_x), gray_map_y(cv_nr_y),
+                         gray_map_x(cv_fr_x), gray_map_y(cv_fr_y), vl_edge_col);
+        /* 虚拟中线 M0-M1 */
+        ips200_draw_line(edge_map_x(cv_m0_x), edge_map_y(cv_m0_y),
+                         edge_map_x(cv_m1_x), edge_map_y(cv_m1_y), vl_mid_col);
+        ips200_draw_line(gray_map_x(cv_m0_x), gray_map_y(cv_m0_y),
+                         gray_map_x(cv_m1_x), gray_map_y(cv_m1_y), vl_mid_col);
     }
     if (maze_start_y > 0 && maze_start_y < MT9V03X_H)
     {

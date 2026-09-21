@@ -8,6 +8,7 @@
 void my_wifi_spi_init(void);
 void wifi_debug(void);
 void wifi_debug_data(void);
+void wifi_crossline_send(void);  // 十字中线文本 $CLINE sx,sy,ex,ey
 int Sin(void);
 
 // WiFi 接收解析
