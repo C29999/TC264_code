@@ -36,6 +36,7 @@
 
 #include "image.h"
 #include "display.h"
+#include "wifi_spi.h"
 
 #pragma section all "cpu0_dsram"
 // 本文件内（#pragma section all restore）之间的所有变量将被分配到 CPU0 的 RAM 中
@@ -57,6 +58,19 @@ int core0_main(void)
     while (TRUE)
     {
         key4_double_click_start();
+        /* 上位机 $GO 发车：与按键双击同动作 */
+        if (wifi_go_flag)
+        {
+            wifi_go_flag = 0;
+            stop_flog = 0;
+            base_speed = -220;
+            total_distance = 0;
+            measure_time_ms = 0;
+            total_distance_m = 0;
+            avg_speed = 0;
+            encoder_measure_flag = 1;
+            display_flog = 1;
+        }
     }
 
 }
