@@ -53,6 +53,8 @@
 #define CR_OUT_START_W   125      /* 对面入口宽度 < 125 */
 #define CR_EXIT_W_LO     40       /* 驶出：底部竖路宽 40~48px */
 #define CR_EXIT_W_HI     48
+#define CR_EXIT_MIN_PTS  25       /* 出口普通双边线至少各恢复 25 点 */
+#define CR_EXIT_STABLE   3        /* 连续 3 帧恢复才退出，滤掉横路瞬时误线 */
 
 /* ---- 里程阈值（米，total_distance_m，已按 11485 脉冲/米标定；
  *      对应参考例程单侧脉冲 10000/5000/15000/2000 的物理距离） ---- */
@@ -205,11 +207,16 @@ void find_corners(void)
 #define CRAWL_Y_GAP         6      /* 只在近端角点上方 6 行开始找 */
 #define CRAWL_MIN_LEN       10     /* 轮廓最短点数（滤孤立噪点） */
 
-/* 访问标记使用独立位图，四角点检测全程只读 image_binary，不影响普通寻线。 */
+/*
+ * 访问位图共用本帧已用完的 NMS 缓冲和轮廓坐标后的 WiFi scratch。
+ * 不新增常驻 RAM，也不修改 image_binary，所以普通寻线数据保持不变。
+ */
 #define crawl_cx            (wifi_scratch_buf)
 #define crawl_cy            (wifi_scratch_buf + CRAWL_CONTOUR_MAX)
 #define CRAWL_VIS_BYTES     ((MT9V03X_W * MT9V03X_H + 7) / 8)
-static uint8 crawl_visited[CRAWL_VIS_BYTES];
+#define CRAWL_NMS_BYTES     (POINTS_MAX_LEN * sizeof(float))
+#define CRAWL_COORD_BYTES   (2 * CRAWL_CONTOUR_MAX)
+#define CRAWL_WIFI_VIS_BYTES (CRAWL_VIS_BYTES - 2 * CRAWL_NMS_BYTES)
 
 /* 爬线结果：crawl_show_ymax 为本帧爬线上界（-1=无角点未爬，屏幕不画）。 */
 int16 crawl_show_ymax = -1;
@@ -217,12 +224,27 @@ int16 crawl_show_ymax = -1;
 static void crawl_vis_set(int16 x, int16 y)
 {
     uint32 id = (uint32)y * MT9V03X_W + (uint32)x;
-    crawl_visited[id >> 3] |= (uint8)(0x80u >> (id & 7));
+    uint32 off = id >> 3;
+    uint8 mask = (uint8)(0x80u >> (id & 7));
+    if (off < CRAWL_NMS_BYTES)
+        ((uint8 *)rpts0an)[off] |= mask;
+    else if (off < 2 * CRAWL_NMS_BYTES)
+        ((uint8 *)rpts1an)[off - CRAWL_NMS_BYTES] |= mask;
+    else
+        wifi_scratch_buf[CRAWL_COORD_BYTES + off - 2 * CRAWL_NMS_BYTES] |= mask;
 }
 static int16 crawl_vis_get(int16 x, int16 y)
 {
     uint32 id = (uint32)y * MT9V03X_W + (uint32)x;
-    return (crawl_visited[id >> 3] & (uint8)(0x80u >> (id & 7))) ? 1 : 0;
+    uint32 off = id >> 3;
+    uint8 value;
+    if (off < CRAWL_NMS_BYTES)
+        value = ((uint8 *)rpts0an)[off];
+    else if (off < 2 * CRAWL_NMS_BYTES)
+        value = ((uint8 *)rpts1an)[off - CRAWL_NMS_BYTES];
+    else
+        value = wifi_scratch_buf[CRAWL_COORD_BYTES + off - 2 * CRAWL_NMS_BYTES];
+    return (value & (uint8)(0x80u >> (id & 7))) ? 1 : 0;
 }
 /* display.c 绘制本帧爬线轨迹。 */
 uint8 crawl_trace_pixel(int16 x, int16 y)
@@ -380,7 +402,9 @@ void find_far_corners_crawl(void)
     far_rpts0s_num = 0;
     far_rpts1s_num = 0;
     crawl_show_ymax = -1;
-    memset(crawl_visited, 0, sizeof(crawl_visited));
+    memset(rpts0an, 0, CRAWL_NMS_BYTES);
+    memset(rpts1an, 0, CRAWL_NMS_BYTES);
+    memset(wifi_scratch_buf + CRAWL_COORD_BYTES, 0, CRAWL_WIFI_VIS_BYTES);
 
     if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
     {
@@ -472,8 +496,8 @@ void cross_build_vlines(void)
 
     cross_vline_valid = 0;
 
-    /* 角点检测在后台常开只为触发十字；正常寻线不生成任何补线。 */
-    if (!cross_line_active) return;
+    /* NONE/START 始终使用普通寻线；只有 ENTER/OUT 生成十字走廊。 */
+    if (!cross_line_active || cross_flag < CR_ENTER) return;
 
     /* 车已进入十字后，旧近端角点已经驶到车后。此时用车头处标准赛道宽
      * 连接当前扫描到的对面入口，形成随画面更新的左右导航走廊。 */
@@ -501,7 +525,7 @@ void cross_build_vlines(void)
         return;
     }
 
-    /* START 阶段优先使用状态机锁存值，角点短暂漏检时补线不闪断。 */
+    /* 扫描走廊暂时无效时，使用状态机锁存的四角点。 */
     if (cross_line_active)
     {
         nl_x = cross_hold_nl_x; nl_y = cross_hold_nl_y;
@@ -680,8 +704,9 @@ void find_cross_center(void)
  * 十字状态机（每帧在 find_corners / find_far_corners_crawl 之后调用）
  * none：NL/NR/FL/FR 四角点同帧齐全 → start
  * start：入口张开/丢失 → enter；里程超时撤销
- * enter：列+行扫描找路口中心（find_cross_center）；对面入口回到底部 → out
- * out ：底部竖路宽恢复 40~48 → none
+ * enter：列+行扫描找路口中心；出口普通双边线稳定恢复 → none
+ *        对面入口先回到底部时 → out
+ * out ：普通双边线稳定恢复，或里程超时 → none
  * --------------------------------------------------------------------------*/
 void cross_line_completion(void)
 {
@@ -690,6 +715,8 @@ void cross_line_completion(void)
     static int16 h_nl_x = -1, h_nl_y = -1, h_nr_x = -1, h_nr_y = -1;
     static int16 h_fl_x = -1, h_fl_y = -1, h_fr_x = -1, h_fr_y = -1;
     uint8 four_corners;
+    uint8 exit_lane_ok = 0;
+    static uint8 exit_lane_frames = 0;
     int16 entry_w = -1;
     float enc;
 
@@ -705,6 +732,14 @@ void cross_line_completion(void)
     }
     if (maze_start_left_x >= 0 && maze_start_right_x >= 0)
         entry_w = maze_start_right_x - maze_start_left_x;
+
+    /* 出口普通赛道已恢复：双边线有足够长度，且车头处赛道宽正常。 */
+    if (rpts0s_num >= CR_EXIT_MIN_PTS && rpts1s_num >= CR_EXIT_MIN_PTS)
+    {
+        int16 exit_w = (int16)((rpts1s[5][0] - rpts0s[5][0]) * pixel_per_meter);
+        if (exit_w >= CR_EXIT_W_LO && exit_w <= CR_EXIT_W_HI)
+            exit_lane_ok = 1;
+    }
 
     /* 爬线远端角点必须在 find_cross_center 清空/改写前锁存。 */
     if (far_Lpt0_found)
@@ -722,6 +757,7 @@ void cross_line_completion(void)
     {
     case CR_NONE:
     {
+        exit_lane_frames = 0;
         four_corners = (Lpt0_found && Lpt1_found
                 && far_Lpt0_found && far_Lpt1_found
                 && Lpt0_rpts0s_id < CR_ID_DUAL
@@ -738,6 +774,7 @@ void cross_line_completion(void)
 
     case CR_START:
     {
+        exit_lane_frames = 0;
         if (nl_x >= 0) { h_nl_x = nl_x; h_nl_y = nl_y; }
         if (nr_x >= 0) { h_nr_x = nr_x; h_nr_y = nr_y; }
 
@@ -761,8 +798,22 @@ void cross_line_completion(void)
     case CR_ENTER:
     {
         enc = total_distance_m - cross_enc_base;
-        /* 对面竖路入口重新出现在底部且宽度恢复 */
-        if (enc > CR_M_ENTER_MIN
+        if (enc > CR_M_ENTER_MIN && exit_lane_ok)
+        {
+            if (exit_lane_frames < CR_EXIT_STABLE) exit_lane_frames++;
+        }
+        else
+        {
+            exit_lane_frames = 0;
+        }
+
+        /* 出口普通双边线稳定恢复后立即交还普通寻线。 */
+        if (exit_lane_frames >= CR_EXIT_STABLE)
+        {
+            cross_flag = CR_NONE;
+        }
+        /* 对面竖路入口重新出现在底部，先进入驶出过渡。 */
+        else if (enc > CR_M_ENTER_MIN
             && maze_start_y > CR_OUT_START_Y
             && maze_start_left_x >= 0 && maze_start_right_x >= 0
             && entry_w < CR_OUT_START_W)
@@ -781,13 +832,16 @@ void cross_line_completion(void)
     case CR_OUT:
     default:
     {
-        uint8 width_ok = 0;
-        if (rpts0s_num > 5 && rpts1s_num > 5)
+        if (exit_lane_ok)
         {
-            int16 w = (int16)((rpts1s[5][0] - rpts0s[5][0]) * pixel_per_meter);
-            if (w >= CR_EXIT_W_LO && w <= CR_EXIT_W_HI) width_ok = 1;
+            if (exit_lane_frames < CR_EXIT_STABLE) exit_lane_frames++;
         }
-        if (width_ok || total_distance_m - cross_enc_base > CR_M_OUT_TO)
+        else
+        {
+            exit_lane_frames = 0;
+        }
+        if (exit_lane_frames >= CR_EXIT_STABLE
+            || total_distance_m - cross_enc_base > CR_M_OUT_TO)
         {
             cross_flag = CR_NONE;
         }

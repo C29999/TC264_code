@@ -371,8 +371,8 @@ void show_draw_edges(void)
                          gpx, (gpy < 75) ? gpy + 4 : 79, RGB565_BLUE);
     }
 
-    /* 角点是十字分支内部数据，普通寻线状态不显示。 */
-    if (cross_line_active)
+    /* 角点是十字分支内部数据，NONE/START 均不显示。 */
+    if (cross_line_active && cross_flag >= CR_ENTER)
     {
         int16 cx, cy;
         uint16 dx, dy, dx0, dx1, dy0, dy1;
@@ -465,7 +465,7 @@ void show_draw_edges(void)
     }
     /* 四角点虚拟补线（cross_build_vlines）：黄色 NL-FL/NR-FR 补边线，
      * 橙色 M0-M1 补中线。二值图窗口与原图窗口各画一遍。 */
-    if (cross_vline_valid)
+    if (cross_line_active && cross_flag >= CR_ENTER && cross_vline_valid)
     {
         const uint16 vl_edge_col = RGB565_YELLOW;
         const uint16 vl_mid_col  = RGB565_MAGENTA;

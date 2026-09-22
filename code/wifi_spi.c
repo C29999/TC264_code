@@ -339,6 +339,17 @@ void wifi_corner_send(void)
         sprintf(dbg_buf, "$DBG %d %d\r\n", (int)fps, (int)image_error_filter);
         wifi_spi_send_string(dbg_buf);
     }
+    /* 上位机图像模式：0=普通寻线，1=预十字，2=十字中（ENTER/OUT）。 */
+    {
+        static char mode_buf[24];
+        uint8 track_mode = 0;
+        if (cross_flag == CR_START)
+            track_mode = 1;
+        else if (cross_flag >= CR_ENTER)
+            track_mode = 2;
+        sprintf(mode_buf, "$TMODE %u\r\n", (unsigned int)track_mode);
+        wifi_spi_send_string(mode_buf);
+    }
     wifi_crossline_send();
 }
 
