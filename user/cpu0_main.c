@@ -58,6 +58,13 @@ int core0_main(void)
     while (TRUE)
     {
         key4_double_click_start();
+        if (wifi_stop_flag)
+        {
+            wifi_stop_flag = 0;
+            stop_flog = 1;
+            base_speed = 0;
+            encoder_measure_flag = 0;
+        }
         /* 上位机 $GO 发车：与按键双击同动作 */
         if (wifi_go_flag)
         {

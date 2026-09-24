@@ -21,20 +21,21 @@ uint8 stop_flog=0;
 int32  total_distance = 0;        // 累计行驶距离（编码器脉冲）
 int16  encoder_measure_flag = 0;  // 1=正在测距 0=停止测距
 float  total_distance_m = 0;      // 累计距离（米）
+float  cross_distance = 0;        // 首次确认四角点后的真实车体距离（双轮平均，米）
 float  avg_speed = 0;             // 平均速度（m/s，发车→停车）
 uint32 measure_time_ms = 0;       // 测距累计时间（ms）
 int16 base_speed=0;       //鍩虹閫熷害鐩爣(缂栫爜鍣ㄨ鏁�/10ms)
 int16 dif_val=0;        //鏂瑰悜涓幆杈撳嚭鐨勫樊閫熼噺
 
 //                kp    kp2    ki   kd   low_pass  p_max  i_max  d_max  kgyro
-pid_param_t servo_pid = PID_CREATE(1.4,  0.045,  0,  9.0,  0.3, 14.5,   0,    8.0,  -0.035);
+pid_param_t servo_pid = PID_CREATE(1.5,  0.045,  0,  9.0,  0.3, 14.5,   0,    8.0,  -0.035);
 pid_param_t motor_pid_l = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_r = PID_CREATE(20.0, 0, 0.3, 0, 0, 3000, 2000, 0, 0.);
 pid_param_t motor_pid_l_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
 pid_param_t motor_pid_r_bangbang = PID_CREATE(60.0, 0, 3.0, 0, 0, 10000, 5000, 0, 0.);
 
-int16 straight_speed      = -180;
-int16 long_straight_speed = -180;
+int16 straight_speed      = -220;
+int16 long_straight_speed = -220;
 int16 corner_speed        = -180;   // 弯道基础速度（-90→-100，弯道整体加快一点）
 float corner_speed_slope  = 0.010f;   // 弯道减速斜率（越大减速越快，0.04≈温和 0.06≈激进）
 

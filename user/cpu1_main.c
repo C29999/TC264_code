@@ -65,12 +65,20 @@ void core1_main(void)
         // 边线数据每帧发送；二值图打包后约 2.8KB/帧（188*120/8），33ms 周期 = 30fps
         const uint32 WIFI_IMAGE_PERIOD_MS = 33;
         const uint32 WIFI_DATA_PERIOD_MS = 100;
-        // WiFi SPI 主动收包会等待模块响应，只在停车待命时低频轮询遥控命令。
-        if (!encoder_measure_flag && wifi_remote_ready() &&
-            system_ms - last_wifi_rx_ms >= 500)
+        /* WiFi SPI 主动收包可能短暂等待模块响应。行驶中低频轮询以接收 $STOP，
+         * 待命时维持更低频率；不会在每帧图像处理中调用。 */
+        if (wifi_remote_ready() && system_ms - last_wifi_rx_ms >=
+            (encoder_measure_flag ? 100 : 500))
         {
             last_wifi_rx_ms = system_ms;
             wifi_task();
+        }
+        if (wifi_stop_flag)
+        {
+            wifi_stop_flag = 0;
+            stop_flog = 1;
+            base_speed = 0;
+            encoder_measure_flag = 0;
         }
         if (wifi_go_flag)
         {

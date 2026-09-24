@@ -10,7 +10,8 @@
 int16 rx_speed;
 int16 rx_change_flag;//是否开启上位机调参
 static float sin_phase = 0.0f;
-static char tx_buf[48] __attribute__((unused));
+/* $CROSS 含 13 个带符号整数；48B 不足会覆盖相邻发送状态。 */
+static char tx_buf[128];
 static uint8 wifi_send_ready = 0;  
 uint8 wifi_remote_ready(void)
 {
@@ -68,7 +69,7 @@ void my_wifi_spi_init(void)
             return;
         }
     system_delay_ms(200);
-    if (wifi_spi_socket_connect("TCP", "192.168.0.111", "8080", "6060") != 0)
+    if (wifi_spi_socket_connect("TCP", "192.168.0.103", "8080", "6060") != 0)
     {
         show_center("TCP Connecting fail");
         system_delay_ms(500);
@@ -82,10 +83,7 @@ void my_wifi_spi_init(void)
     seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIFI_SPI);
     wifi_send_ready = 1;    //全部初始化成功，允许发数据
 }
-/* 通用 scratch 缓冲（2820B）：WiFi 二值图打包用；图像爬线期间借用前
- * 2*CRAWL_CONTOUR_MAX 字节存轮廓坐标（element.c find_far_corners_crawl）。
- * 同核（CPU1）主循环顺序执行：process_edge_points 爬线 -> wifi_debug 打包，
- * 不嵌套；wifi_image_send 每次开头 memset 全清，爬线数据失效无害。 */
+/* 1-bit WiFi 图像包缓冲；与 CPU1 图像处理顺序复用，不新增全帧缓冲。 */
 uint8 wifi_scratch_buf[(MT9V03X_W * MT9V03X_H) / 8];
 
 void wifi_image_send(void)
@@ -99,8 +97,10 @@ void wifi_image_send(void)
     memset(wifi_scratch_buf, 0, sizeof(wifi_scratch_buf));
     for (pixel_index = 0; pixel_index < MT9V03X_W * MT9V03X_H; pixel_index++)
     {
-        if (((uint8 *)image_binary)[pixel_index] >= 128)
+        if (((uint8 *)image_binary)[pixel_index] >= EDGE_WHITE_THRESHOLD)
+        {
             wifi_scratch_buf[pixel_index >> 3] |= (uint8)(0x80u >> (pixel_index & 7));
+        }
     }
     seekfree_assistant_camera_config(&camera_obj,
         SEEKFREE_ASSISTANT_CAMERA_TYPE_BINARY, MT9V03X_W, MT9V03X_H, wifi_scratch_buf);
@@ -115,7 +115,7 @@ void wifi_boundary_send(void)
     static seekfree_assistant_camera_boundary_struct corner_near_obj;
     static seekfree_assistant_camera_boundary_struct corner_far_obj;
     static seekfree_assistant_camera_boundary_struct vline_l_obj;   /* 左补边线 NL-FL（黄） */
-    static seekfree_assistant_camera_boundary_struct vline_r_obj;   /* 右补边线 NR-FR（橙） */
+    static seekfree_assistant_camera_boundary_struct vline_r_obj;   /* 右补边线 NR-FR（黄） */
     static seekfree_assistant_camera_boundary_struct vmid_obj;      /* 虚拟中线 M0-M1（品红） */
     uint8 center_points[MT9V03X_H][2];
     uint8 lookahead_point[1][2];
@@ -135,8 +135,8 @@ void wifi_boundary_send(void)
     {
         return;
     }
-    /* 普通/候选阶段原样发送旧寻线；ENTER/OUT 仅发送动态十字走廊。 */
-    if (cross_flag < CR_ENTER && left_line_count > 0)
+    /* 左边线：红色 */
+    if (left_line_count > 0)
     {
         for (i = 0; i < left_line_count; i += 2)
         {
@@ -150,7 +150,7 @@ void wifi_boundary_send(void)
         seekfree_assistant_camera_boundary_send(&boundary_l_obj);
     }
     /* 右边线：蓝色 */
-    if (cross_flag < CR_ENTER && right_line_count > 0)
+    if (right_line_count > 0)
     {
         for (i = 0; i < right_line_count; i += 2)
         {
@@ -164,8 +164,12 @@ void wifi_boundary_send(void)
         seekfree_assistant_camera_boundary_send(&boundary_r_obj);
     }
 
-    /* 双边真实中线：只在普通/候选阶段发送。 */
-    for (y = MT9V03X_H - 1; cross_flag < CR_ENTER && y >= 0; y--)
+    /* 双边真实中线：逐行配对，绿色。单边缺失的行不补线。
+     * 十字期间（cross_flag != CR_NONE 且虚拟中线已生效），横路段（y < cv_m0_y）
+     * 不发真实中线——那一段由橙色虚拟中线 M0-M1 接管，避免横路段边线乱配对。 */
+    {
+        int16 y_lo = (cross_flag >= CR_ENTER && cv_m0_y >= 0) ? cv_m0_y : 0;
+        for (y = MT9V03X_H - 1; y >= y_lo; y--)
     {
         int16 lx = -1;
         int16 rx = -1;
@@ -192,6 +196,7 @@ void wifi_boundary_send(void)
             center_count++;
         }
     }
+    }
     if (center_count > 0)
     {
         seekfree_assistant_camera_boundary_config(&center_obj,
@@ -211,22 +216,62 @@ void wifi_boundary_send(void)
         seekfree_assistant_camera_boundary_send(&lookahead_obj);
     }
 
-    /* 仅十字分支叠加角点；普通寻线不向 WiFi 输出角点。 */
+    /* 四个角点叠加到上位机二值图：近端紫色，远端黄色。
+     * 补线保持期（cross_line_active）用锁存角点，车驶过近端后角点不消失。 */
     if (cross_line_active)
     {
-        /* 与补线完全同源：START 为锁存四角点，ENTER/OUT 为动态走廊端点。 */
-        if (cross_vline_valid)
+        /* 状态机各阶段角点逐个生效：start 阶段只有近端，enter 后才有远端，
+         * 无效角点不叠加（uint8 无法表示 -1，文本协议 $CORNERS 才透传 -1）。 */
+        if (cross_hold_nl_x >= 0 && cross_hold_nl_y >= 0)
         {
-            corner_near[0][0] = (uint8)clip(cv_nl_x, 0, MT9V03X_W - 1);
-            corner_near[0][1] = (uint8)clip(cv_nl_y, 0, MT9V03X_H - 1);
-            corner_near[1][0] = (uint8)clip(cv_nr_x, 0, MT9V03X_W - 1);
-            corner_near[1][1] = (uint8)clip(cv_nr_y, 0, MT9V03X_H - 1);
-            corner_far[0][0] = (uint8)clip(cv_fl_x, 0, MT9V03X_W - 1);
-            corner_far[0][1] = (uint8)clip(cv_fl_y, 0, MT9V03X_H - 1);
-            corner_far[1][0] = (uint8)clip(cv_fr_x, 0, MT9V03X_W - 1);
-            corner_far[1][1] = (uint8)clip(cv_fr_y, 0, MT9V03X_H - 1);
-            near_count = 2;
-            far_count = 2;
+            corner_near[near_count][0] = (uint8)clip(cross_hold_nl_x, 0, MT9V03X_W - 1);
+            corner_near[near_count][1] = (uint8)clip(cross_hold_nl_y, 0, MT9V03X_H - 1);
+            near_count++;
+        }
+        if (cross_hold_nr_x >= 0 && cross_hold_nr_y >= 0)
+        {
+            corner_near[near_count][0] = (uint8)clip(cross_hold_nr_x, 0, MT9V03X_W - 1);
+            corner_near[near_count][1] = (uint8)clip(cross_hold_nr_y, 0, MT9V03X_H - 1);
+            near_count++;
+        }
+        if (cross_hold_fl_x >= 0 && cross_hold_fl_y >= 0)
+        {
+            corner_far[far_count][0] = (uint8)clip(cross_hold_fl_x, 0, MT9V03X_W - 1);
+            corner_far[far_count][1] = (uint8)clip(cross_hold_fl_y, 0, MT9V03X_H - 1);
+            far_count++;
+        }
+        if (cross_hold_fr_x >= 0 && cross_hold_fr_y >= 0)
+        {
+            corner_far[far_count][0] = (uint8)clip(cross_hold_fr_x, 0, MT9V03X_W - 1);
+            corner_far[far_count][1] = (uint8)clip(cross_hold_fr_y, 0, MT9V03X_H - 1);
+            far_count++;
+        }
+    }
+    else
+    {
+        if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
+        {
+            corner_near[near_count][0] = (uint8)clip((int16)(rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            corner_near[near_count][1] = (uint8)clip((int16)(rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+            near_count++;
+        }
+        if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+        {
+            corner_near[near_count][0] = (uint8)clip((int16)(rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            corner_near[near_count][1] = (uint8)clip((int16)(rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+            near_count++;
+        }
+        if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+        {
+            corner_far[far_count][0] = (uint8)clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            corner_far[far_count][1] = (uint8)clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+            far_count++;
+        }
+        if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+        {
+            corner_far[far_count][0] = (uint8)clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            corner_far[far_count][1] = (uint8)clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+            far_count++;
         }
     }
     if (near_count > 0)
@@ -242,16 +287,16 @@ void wifi_boundary_send(void)
         seekfree_assistant_camera_boundary_send(&corner_far_obj);
     }
 
-    /* 上位机以颜色值作为 overlay 键，左右补线必须使用不同颜色，否则后发的
-     * 右线会覆盖先发的左线。左黄、右橙、中线品红。 */
-    if (cross_vline_valid)
+    /* 四角点虚拟补线（cross_build_vlines）：左 NL-FL 紫 / 右 NR-FR 靛蓝补边线
+     * （左右必须异色，同色会被上位机同色通道后发覆盖），橙色 M0-M1 补中线。 */
+    if (cross_vline_valid && cross_flag >= CR_ENTER)
     {
         vline_pts[0][0] = (uint8)clip(cv_nl_x, 0, MT9V03X_W - 1);
         vline_pts[0][1] = (uint8)clip(cv_nl_y, 0, MT9V03X_H - 1);
         vline_pts[1][0] = (uint8)clip(cv_fl_x, 0, MT9V03X_W - 1);
         vline_pts[1][1] = (uint8)clip(cv_fl_y, 0, MT9V03X_H - 1);
         seekfree_assistant_camera_boundary_config(&vline_l_obj,
-            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0xFFE0, 2, vline_pts);
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0x801F, 2, vline_pts);
         seekfree_assistant_camera_boundary_send(&vline_l_obj);
 
         vline_pts[0][0] = (uint8)clip(cv_nr_x, 0, MT9V03X_W - 1);
@@ -259,7 +304,7 @@ void wifi_boundary_send(void)
         vline_pts[1][0] = (uint8)clip(cv_fr_x, 0, MT9V03X_W - 1);
         vline_pts[1][1] = (uint8)clip(cv_fr_y, 0, MT9V03X_H - 1);
         seekfree_assistant_camera_boundary_config(&vline_r_obj,
-            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0xFD20, 2, vline_pts);
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0x041F, 2, vline_pts);
         seekfree_assistant_camera_boundary_send(&vline_r_obj);
 
         vline_pts[0][0] = (uint8)clip(cv_m0_x, 0, MT9V03X_W - 1);
@@ -267,7 +312,7 @@ void wifi_boundary_send(void)
         vline_pts[1][0] = (uint8)clip(cv_m1_x, 0, MT9V03X_W - 1);
         vline_pts[1][1] = (uint8)clip(cv_m1_y, 0, MT9V03X_H - 1);
         seekfree_assistant_camera_boundary_config(&vmid_obj,
-            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0xF81F, 2, vline_pts);
+            SEEKFREE_ASSISTANT_DATA_TYPE_UINT8, 0xFC00, 2, vline_pts);
         seekfree_assistant_camera_boundary_send(&vmid_obj);
     }
 }
@@ -293,17 +338,30 @@ void wifi_debug_data(void)
     scope_data[3] = -1.0f; scope_data[4] = -1.0f;
     scope_data[5] = -1.0f; scope_data[6] = -1.0f;
     scope_data[7] = -1.0f; scope_data[8] = -1.0f;
-    if (cross_line_active && cross_vline_valid)
+    if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
     {
-        scope_data[1] = (float)cv_nl_x; scope_data[2] = (float)cv_nl_y;
-        scope_data[3] = (float)cv_nr_x; scope_data[4] = (float)cv_nr_y;
-        scope_data[5] = (float)cv_fl_x; scope_data[6] = (float)cv_fl_y;
-        scope_data[7] = (float)cv_fr_x; scope_data[8] = (float)cv_fr_y;
+        scope_data[1] = rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter;
+        scope_data[2] = rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter;
+    }
+    if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+    {
+        scope_data[3] = rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter;
+        scope_data[4] = rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter;
+    }
+    if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+    {
+        scope_data[5] = far_orig0[far_Lpt0_rpts0s_id][0];
+        scope_data[6] = far_orig0[far_Lpt0_rpts0s_id][1];
+    }
+    if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+    {
+        scope_data[7] = far_orig1[far_Lpt1_rpts1s_id][0];
+        scope_data[8] = far_orig1[far_Lpt1_rpts1s_id][1];
     }
     seekfree_assistant_oscilloscope_send(&scope_obj);
 }
 
-    /* ================ 角点文本发送：$CORNERS NLx,NLy,NRx,NRy,FLx,FLy,FRx,FRy\r\n ================
+/* ================ 角点文本发送：$CORNERS NLx,NLy,NRx,NRy,FLx,FLy,FRx,FRy\r\n ================
  * 原图 188x120 像素坐标，可直接叠加到上位机二值图上。
  * 无效角点输出 -1。与 wifi_boundary_send 的近端紫/远端黄角点同源（Lpt0/Lpt1/far_Lpt0/far_Lpt1）。 */
 void wifi_corner_send(void)
@@ -317,38 +375,74 @@ void wifi_corner_send(void)
     }
     if (cross_line_active)
     {
-        /* 与 WiFi boundary 和车载屏幕同源，避免文本角点停在旧位置。 */
-        if (cross_vline_valid)
+        /* 状态机锁存角点（原图像素）；尚未扫到的角点保持 -1（协议规定无效输出 -1） */
+        if (cross_hold_nl_x >= 0) nl_x = clip(cross_hold_nl_x, 0, MT9V03X_W - 1);
+        if (cross_hold_nl_y >= 0) nl_y = clip(cross_hold_nl_y, 0, MT9V03X_H - 1);
+        if (cross_hold_nr_x >= 0) nr_x = clip(cross_hold_nr_x, 0, MT9V03X_W - 1);
+        if (cross_hold_nr_y >= 0) nr_y = clip(cross_hold_nr_y, 0, MT9V03X_H - 1);
+        if (cross_hold_fl_x >= 0) fl_x = clip(cross_hold_fl_x, 0, MT9V03X_W - 1);
+        if (cross_hold_fl_y >= 0) fl_y = clip(cross_hold_fl_y, 0, MT9V03X_H - 1);
+        if (cross_hold_fr_x >= 0) fr_x = clip(cross_hold_fr_x, 0, MT9V03X_W - 1);
+        if (cross_hold_fr_y >= 0) fr_y = clip(cross_hold_fr_y, 0, MT9V03X_H - 1);
+    }
+    else
+    {
+        if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
         {
-            nl_x = clip(cv_nl_x, 0, MT9V03X_W - 1);
-            nl_y = clip(cv_nl_y, 0, MT9V03X_H - 1);
-            nr_x = clip(cv_nr_x, 0, MT9V03X_W - 1);
-            nr_y = clip(cv_nr_y, 0, MT9V03X_H - 1);
-            fl_x = clip(cv_fl_x, 0, MT9V03X_W - 1);
-            fl_y = clip(cv_fl_y, 0, MT9V03X_H - 1);
-            fr_x = clip(cv_fr_x, 0, MT9V03X_W - 1);
-            fr_y = clip(cv_fr_y, 0, MT9V03X_H - 1);
+            nl_x = clip((int16)(rpts0s[Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            nl_y = clip((int16)(rpts0s[Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        }
+        if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
+        {
+            nr_x = clip((int16)(rpts1s[Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            nr_y = clip((int16)(rpts1s[Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        }
+        if (far_Lpt0_found && far_Lpt0_rpts0s_id >= 0 && far_Lpt0_rpts0s_id < far_rpts0s_num)
+        {
+            fl_x = clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            fl_y = clip((int16)(far_rpts0s[far_Lpt0_rpts0s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
+        }
+        if (far_Lpt1_found && far_Lpt1_rpts1s_id >= 0 && far_Lpt1_rpts1s_id < far_rpts1s_num)
+        {
+            fr_x = clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][0] * pixel_per_meter), 0, MT9V03X_W - 1);
+            fr_y = clip((int16)(far_rpts1s[far_Lpt1_rpts1s_id][1] * pixel_per_meter), 0, MT9V03X_H - 1);
         }
     }
     sprintf(corner_buf, "$CORNERS %d,%d,%d,%d,%d,%d,%d,%d\r\n",
             nl_x, nl_y, nr_x, nr_y, fl_x, fl_y, fr_x, fr_y);
     wifi_spi_send_string(corner_buf);
+    /* 十字状态与候选判据。TMODE 由真实状态驱动，避免上位机固定显示普通巡线。 */
+    sprintf(tx_buf, "$TMODE %d\r\n", (int)((cross_flag >= CR_ENTER) ? 2 : cross_flag));
+    wifi_spi_send_string(tx_buf);
+    sprintf(tx_buf, "$CROSS %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n",
+            (int)cross_flag, (int)cross_candidate_frames,
+            (int)cross_near_pair_valid, (int)cross_geometry_valid,
+            (int)(touch_boundary0 != 0), (int)(touch_boundary1 != 0),
+            nl_x, nl_y, nr_x, nr_y, (int)(cross_phase_distance * 1000.0f),
+            (int)cross_exit_lane_valid, (int)cross_exit_confirm_frames);
+    wifi_spi_send_string(tx_buf);
+    /* 编码器原始值为每 10ms 脉冲数；第三项为发车以来平均速度 mm/s。 */
+    {
+        int32 average_speed_mmps = (int32)(avg_speed * 1000.0f);
+        sprintf(tx_buf, "$SPD %d,%d,%ld\r\n", (int)encoder_left,
+                (int)encoder_right, (long)average_speed_mmps);
+        wifi_spi_send_string(tx_buf);
+    }
     /* 附加调试量：$DBG fps image_error_filter */
     {
         static char dbg_buf[48];
         sprintf(dbg_buf, "$DBG %d %d\r\n", (int)fps, (int)image_error_filter);
         wifi_spi_send_string(dbg_buf);
     }
-    /* 上位机图像模式：0=普通寻线，1=预十字，2=十字中（ENTER/OUT）。 */
+    /* 普通巡线诊断：起始行、入口左右坐标、原始点数、左右触界。 */
     {
-        static char mode_buf[24];
-        uint8 track_mode = 0;
-        if (cross_flag == CR_START)
-            track_mode = 1;
-        else if (cross_flag >= CR_ENTER)
-            track_mode = 2;
-        sprintf(mode_buf, "$TMODE %u\r\n", (unsigned int)track_mode);
-        wifi_spi_send_string(mode_buf);
+        static char track_dbg_buf[80];
+        sprintf(track_dbg_buf, "$TRACK %d %d %d %u %u %d %d\r\n",
+                (int)maze_start_y, (int)maze_start_left_x,
+                (int)maze_start_right_x, (unsigned int)left_line_count,
+                (unsigned int)right_line_count, (int)(touch_boundary0 != 0),
+                (int)(touch_boundary1 != 0));
+        wifi_spi_send_string(track_dbg_buf);
     }
     wifi_crossline_send();
 }
@@ -399,7 +493,7 @@ int16 wifi_cmd_speed = 0;    // $SPEED 后的第一个数字
 int16 wifi_cmd_param2 = 0;   // $SPEED 后的第二个数字
 uint8 wifi_cmd_flag = 0;     // 收到新指令时置1，处理完清0
 volatile uint8 wifi_go_flag = 0;
-
+volatile uint8 wifi_stop_flag = 0;
 void wifi_task(void)
 {
     uint8 rx_buf[64];
@@ -415,15 +509,35 @@ void wifi_task(void)
     if (rx_len == 0) return;
 
     // 2. 追加到解析缓冲
-    if (wifi_parse_len + rx_len > sizeof(wifi_parse_buf))
+    if (wifi_parse_len + rx_len >= sizeof(wifi_parse_buf))
     {
         wifi_parse_len = 0;  // 溢出清空
         return;
     }
     memcpy(&wifi_parse_buf[wifi_parse_len], rx_buf, rx_len);
     wifi_parse_len += rx_len;
+    wifi_parse_buf[wifi_parse_len] = '\0';
 
-    // 遥控发车命令。使用累计缓冲，可处理 TCP 拆包。
+    /* 动态巡线速度：$TRACKSPD -220,-180\r\n（直道、弯道；前进方向为负）。 */
+    {
+        uint16 speed_i;
+        for (speed_i = 0; speed_i + 10 < wifi_parse_len; speed_i++)
+        {
+            int straight_value, corner_value;
+            if (wifi_parse_buf[speed_i] == '$'
+                && memcmp(&wifi_parse_buf[speed_i], "$TRACKSPD", 9) == 0
+                && sscanf((char *)&wifi_parse_buf[speed_i + 9], "%d,%d",
+                          &straight_value, &corner_value) == 2)
+            {
+                straight_speed = clip((int16)straight_value, -500, -10);
+                corner_speed = clip((int16)corner_value, -500, -10);
+                wifi_parse_len = 0;
+                return;
+            }
+        }
+    }
+
+    // 遥控发车/停车命令。使用累计缓冲，可处理 TCP 拆包。
     if (wifi_parse_len >= 3)
     {
         uint16 go_i;
@@ -434,6 +548,16 @@ void wifi_task(void)
                 wifi_parse_buf[go_i + 2] == 'O')
             {
                 wifi_go_flag = 1;
+                wifi_parse_len = 0;
+                return;
+            }
+            if (go_i + 4 < wifi_parse_len && wifi_parse_buf[go_i] == '$'
+                && wifi_parse_buf[go_i + 1] == 'S'
+                && wifi_parse_buf[go_i + 2] == 'T'
+                && wifi_parse_buf[go_i + 3] == 'O'
+                && wifi_parse_buf[go_i + 4] == 'P')
+            {
+                wifi_stop_flag = 1;
                 wifi_parse_len = 0;
                 return;
             }

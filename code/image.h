@@ -32,7 +32,7 @@ extern int16 maze_start_left_x, maze_start_right_x;
 extern int16 lookahead_lx, lookahead_rx, lookahead_y;   // 前瞻行左右边界点(原图像素,-1=无)
 
 extern uint8 image_binary[MT9V03X_H][MT9V03X_W];
-extern uint8 wifi_scratch_buf[];   /* WiFi打包/爬线轮廓共用scratch，见wifi_spi.c */
+extern uint8 wifi_scratch_buf[];   /* WiFi 1-bit二值图打包缓冲 */
 extern int16 left_line_points[IPTS_MAX][2];
 extern int16 right_line_points[IPTS_MAX][2];
 extern uint16 left_line_count;
@@ -93,13 +93,20 @@ extern int16 is_straight0, is_straight1;
 extern float conf1, conf2, conf1_max, conf2_max;
 
 /* ================ 十字状态机（移植 STC32 例程：折角角点+路口中心导航） ================ */
-/* 十字检测总开关：1=启用（折角识别+状态机+路口中心接管转向+十字蜂鸣）；
- *                 0=完全旁路，回到纯巡线（不截断边线、不接管转向、不响十字）。
- *                 大弯道蜂鸣与 WiFi 协议不受影响（关闭时角点/中线均发 -1）。 */
-#define CROSS_ENABLE 1   /* 1=启用十字状态机与路口中心导航 */
+/* 十字识别与十字转向分开控制：CROSS_ENABLE 管检测/显示/状态机，
+ * CROSS_CONTROL_ENABLE 仅在 CR_ENTER/CR_OUT 时接管转向。 */
+#define CROSS_ENABLE 0
+#define CROSS_CONTROL_ENABLE 0
+#define CROSS_SCAN_TOP_Y 90
 /* 十字状态：element.c 定义 cross_flag，image.c/wifi_spi.c 共同消费 */
 typedef enum { CR_NONE = 0, CR_START = 1, CR_ENTER = 2, CR_OUT = 3 } cross_state_t;
 extern uint8 cross_flag;          // 当前十字状态（0无 1发现近端角点 2十字中 3驶出）
+extern uint8 cross_candidate_frames; // 当前连续十字候选帧数（上位机调试用）
+extern uint8 cross_near_pair_valid;  // 左右近端角点的几何配对是否有效
+extern uint8 cross_geometry_valid;   // 近角配对与补线几何是否同时有效
+extern uint8 cross_exit_lane_valid;  // 当前帧是否已恢复为出口窄竖道
+extern uint8 cross_exit_confirm_frames; // 出口窄竖道连续确认帧数
+extern float cross_phase_distance;   // 当前十字阶段累计距离（米）
 extern int16 cross_max_x;         // 对面路口中心 x（原图像素，enter/out 导航目标）
 extern int16 cross_far_y;         // 对面路口所在行（原图像素，-1=无效）
 extern int16 cross_edge_l, cross_edge_r;  // 对面路口左右边缘（原图像素，显示用）
@@ -132,11 +139,12 @@ void  local_angle_points(float pts_in[][2], int16 num, float angle_out[], int16 
 void  nms_angle(float angle_in[], int16 num, float angle_out[], int16 kernel);//非极大值抑制
 void find_corners(void);//查找角点
 void find_far_corners_crawl(void);//近端角点向上爬黑白边界找远端外角点 FL/FR
-void cross_build_vlines(void);//START 锁存四角点补线；ENTER/OUT 生成动态导航走廊
+void cross_build_vlines(void);//四角点齐全：生成虚拟边线 NL-FL/NR-FR 与虚拟中线 M0-M1（显示/WiFi）
+void cross_apply_integer_edges(void);//十字确认后按逐行整数坐标写回边线数组
 uint8 crawl_trace_pixel(int16 x, int16 y);//爬线轨迹位图查询（display.c 青色绘制）
 extern int16 crawl_show_ymax;//本帧爬线上界（-1=未爬，屏幕不画轨迹）
 void  find_cross_center(void);//十字中列+行扫描对面路口中心（非角点检测）
-void  cross_line_completion(void);//十字状态机：锁存角点、裁掉误边并推进阶段
+void  cross_line_completion(void);//十字补线：四角点有效时把断开的边界线补成连续虚拟线
 void  beeper_poll(void);//蜂鸣器统一输出：大弯道 + 十字（四角点齐哔哔哔）
 void findline_lefthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count);
 void findline_righthand_binary(const uint8 binary[PERS_H][PERS_W], int16 x, int16 y, int16 points[][2], uint16 *point_count);

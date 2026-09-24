@@ -51,3 +51,65 @@
 - 尝试：检查根目录所有 Markdown；`PROJECT_CONTEXT.md` 是唯一有内容的主交接文档，`项目交接说明.md` 和 `HANDOVER.md` 为 0 字节占位，因此未制造三份重复且可能失同的说明。
 - 验证：已检查新增章节和关键字，`git diff --check` 通过。
 - 遗留：十字参数仍需 AURIX Studio 构建和实车验证。
+
+## 2026-09-22 - Codex（STC32 十字行为整体切换）
+
+- 目标：用只读参考工程 `stc32-main/project/code/element.c::element_cross` 和 `pure_track.c` 的生效逻辑取代旧的“四角点严格进入、START 不接管、退出连续 3 帧”规格。
+- 修改：`code/element.c` 按参考 `element.c:107` 改为双近端角点/左角点+右触界/右角点+左触界三选一；按 `:434-465` 扩展 START 扫描并在 ENTER 清行锁存；按 `:597-624` 改为 ENTER 超时直接 NONE、OUT 第 5 点宽度单帧退出。`code/image.c/.h` 按 `pure_track.c:70-76,120-150,174-184,203-216` 增加 START 左角点优先的截断单边中线、半宽偏移、pure pursuit 和角度跳变门控，且不改原点集。`code/display.c` 和 `code/wifi_spi.c` 改为 START 显示/发送同一条截断中线；`$TMODE` 保持不变。`PROJECT_CONTEXT.md` 已同步新规格。
+- 尝试：开工前执行 `git status`、`git log --oneline -5`、`git diff`，确认并保留 `code/data.c` 的 `kp=1.5`、直道速度 `-220` 未提交调参；阅读并对照 STC32 指定行号；全量搜索 `cross_flag`、`cross_line_active`、`cross_vline_valid`、`touch_boundary0/1`、`far_Lpt0/1`的生产者与消费者。远端爬线代码保留但已从流水线停用。
+- 验证：修改文件的花括号/圆括号计数匹配，`git diff --check` 无空白错误。本机无 TASKING `amk`，未编译；需在 AURIX Studio 重点确认停用 `find_far_corners_crawl()` 后的未使用函数/变量告警和 RAM 链接。
+- 遗留：未做实车验证；`CR_START_DANGLE = 5° / SMOTOR_RATE` 是按本车角度量纲换算的初值，需实车标定。
+
+## 2026-09-23 - Codex（WiFi 图像切回二值）
+
+- 目标：逆透视标定完成后，让上位机接收当前寻线使用的二值图，而不是灰度相机原图。
+- 修改：`code/wifi_spi.c::wifi_image_send()` 将 `image_binary` 按逐飞协议 MSB-first 打包为 1 bit/像素，类型切回 `SEEKFREE_ASSISTANT_CAMERA_TYPE_BINARY`；复用已有 `wifi_scratch_buf`，没有增加整帧常驻内存。同步修正 `code/image.h` 的缓冲用途注释。
+- 尝试：核对逐飞组件中二值图每 8 像素/字节的长度计算，以及外部上位机 `gnss_host.py` 对 type 1 图像的 MSB-first 解包；确认 `MT9V03X_W * MT9V03X_H` 可整除 8。
+- 验证：`git diff --check` 通过；本次未编译、未连接实车验证。
+- 遗留：在上位机确认收到的图像标签为 `BIN`，并检查边线叠加与实际二值画面配准。
+
+## 2026-09-23 - Codex（全丢线诊断显示）
+
+- 目标：推车复现全丢线时，区分二值起点搜索失败与逐行赛道跟踪失败。
+- 修改：`code/display.c` 主调试页增加 `RAW`（左右原始边界点数）、`SY`（起始行）、`ENTRY`（起始行左右坐标）和 `T`（左右触界标志）；保留现有 `pts`、`ST` 和 `CR` 显示，不改寻线/十字算法。
+- 尝试：对照 `find_binary_start()`、`track_lane_by_rows()`、`find_edges_binary()` 和 `calculation_error()` 的状态更新顺序，选择可以区分入口失败与后续取点/控制失败的现场参数。
+- 验证：待执行 `git diff --check`；本次未编译、未实车测试。
+- 遗留：请推车复现并拍下主屏 `RAW/SY/ENTRY/T/pts/ST/CR` 数值；`SY=-01` 代表没找到起始白色区间，`SY>=0` 但 `RAW` 点数少代表后续逐行跟踪提前中断。
+
+## 2026-09-23 - Codex（普通边线贴边容错）
+
+- 目标：优化原图二值化上的普通巡线，避免白色车道贴近相机边缘时被误判全丢线。
+- 修改：`code/image.c` 的 `find_binary_start()` 和 `track_lane_by_rows()` 允许白色赛道段一侧贴图像边界；仍保留最小/最大宽度和逐行中心跳变限制，且触界标志继续记录给十字判据使用。
+- 约束：未改变逆透视用途、十字状态机或普通巡线的数据源；普通寻线仍只读取 `image_binary`。
+- 验证：待执行 `git diff --check`；本次未编译、未实车验证。
+- 遗留：需实车确认弯道/十字入口不会因贴边容错增加误触发。
+
+## 2026-09-23 - Codex（WiFi 发送普通巡线起始行诊断）
+
+- 目标：在上位机同步查看车端自适应起始行是否找到，以及逐行跟踪实际输出点数。
+- 修改：`code/wifi_spi.c` 新增 `$TRACK sy entry_l entry_r raw_l raw_r touch_l touch_r`；保留原 `$DBG fps error` 不变。上位机 `gnss_host.py` 解析该行，并在图像左上角第二行显示 `sy/entry/raw/t`。
+- 验证：待执行 `git diff --check`；本次未编译、未实车验证。
+- 遗留：烧录后观察 `sy=-1`（起始行失败）或 `sy>=0、raw 点数偏少`（逐行跟踪失败）。
+
+## 2026-09-24 - Codex（十字恢复原图二值四角点方案）
+
+- 目标：撤销十字对逆透视图的依赖，并参考用户提供的 CSDN 四角点/斜率补线代码降低弯道误判。
+- 修改：`code/element.c` 删除 `cross_ipm_lane_restored()` 及全部 IPM 出口判据；十字中心扫描继续直接读取 `image_binary`。`CR_NONE` 保留本帧爬线得到的远端角点，仅在左右巡线同时触界且 NL/NR/FL/FR 四角点齐全时进入 `CR_START`；两条补边线和中点连线仍独立锁存，不覆盖普通边界数组。`CR_ENTER/OUT` 恢复原图边线点数、第 5 点宽度连续 3 帧与编码器超时退出。`code/image.c` 恢复起始行必须同时存在左右真实黑白跳变，起始后的逐行跟踪仍允许贴边。
+- 参考：用户粘贴的 `Cross_Detect()` 以双边丢线为前置、寻找左右上下角点，并按四点/三点/两点组合连线或延长边界；本工程采用更严格的双触界+四点齐全进入，降低普通弯道短暂丢线误判。
+- 验证：`git diff --check` 通过；静态搜索确认 `code/element.c` 已无 `img_pers_data`、`cross_ipm` 或 `CR_IPM` 消费。本机未编译、未实车验证。
+- 遗留：需在 AURIX Studio 构建，重点确认 TASKING 未使用宏/静态函数告警及 RAM 链接；实车验证四角点检出率、0.44/1.3/0.17 m 状态距离和 40~48 px 出口宽度。
+
+## 2026-09-24 - Codex（按参考代码实现分情况补线）
+
+- 目标：按用户粘贴的 `Cross_Detect()` 四种角点组合补线，而不是只允许四点齐全时直连。
+- 修改：`code/element.c::cross_build_vlines()` 左右侧独立处理：真实远端角点存在时直接连接；缺失时用近端角点前第 7 点到前第 2 点估算边界切线，并向上延长至 y=10。两侧结果取中点生成虚拟中线，覆盖四点、任一侧缺远端点、两侧都缺远端点四种情况。
+- 约束：不写回 `left_line_points/right_line_points` 或 `rpts0s/rpts1s`；状态机仍要求双边触界、左右近端角点和两侧有效补线同时成立，防止普通弯道单角点误判。
+- 验证：待执行 `git diff --check` 和静态括号检查；本机未编译、未实车验证。
+- 遗留：实车观察延长线是否贴合边界；如透视导致直线外推偏差，再标定取样点跨度和目标 y。
+### 2026-09-24 十字补线整数化
+- 十字确认后新增 `cross_apply_integer_edges()`：按图像逐行计算整数 x，直接写回 `left_line_points/right_line_points`，并同步当前 `rpts0s/rpts1s`，避免浮点直线取整造成重复坐标和补线截断。
+- `cross_extend_far()` 与回写函数增加斜率绝对值范围 `0.35..8.0`，不满足范围时放弃该侧补线，阈值待实车标定。
+- 未使用 TASKING/AURIX 编译器，未完成编译和实车验证；需在 AURIX Studio 检查链接、告警及补线方向。
+### 2026-09-24 十字速度环停车
+- 十字状态从 `CR_START` 起将速度环目标设为 0，通过编码器速度 PID 减速停车，不调用硬停分支。
+- 原 `cross_speed` 保留但不再用于十字停车目标；退出十字后恢复普通动态速度。

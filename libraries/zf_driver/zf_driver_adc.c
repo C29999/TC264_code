@@ -94,7 +94,7 @@ uint16 adc_mean_filter_convert (adc_channel_enum vadc_chn, uint8 count)
 // 参数说明     ch              选择 ADC 通道 (详见 zf_driver_adc.h 中枚举 adc_channel_enum 定义)
 // 参数说明     resolution      选择选择通道分辨率(如果同一个 ADC 模块初始化时设置了不同的分辨率 则最后一个初始化的分辨率生效)
 // 返回参数     void
-// 使用示例     adc_init(ADC1_CH0_A0, ADC_8BIT);                                // 初始化 A0 为 ADC1 的 channel0 输入功能 分辨率为8位
+// 使用示例     adc_init(ADC1_CH0_A0, ADC_12BIT);                                // 初始化 A0 为 ADC1 的 channel0 输入功能 分辨率为8位
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
 void adc_init (adc_channel_enum vadc_chn, adc_resolution_enum resolution)

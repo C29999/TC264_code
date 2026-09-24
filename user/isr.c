@@ -108,14 +108,20 @@ IFX_INTERRUPT(cc61_pit_ch1_isr, 0, CCU6_1_CH1_ISR_PRIORITY)
     interrupt_global_enable(0);                     // �����ж�Ƕ��
     pit_clear_flag(CCU61_CH1);
     encoder_update();
-    // 编码器测距：发车(encoder_measure_flag=1)后每10ms累计一次，1m=11485脉冲
-    if (encoder_measure_flag)
+    /* 里程始终累计，未发车时手推车辆也能测试元素距离。 */
     {
         int32 step = (encoder_left < 0 ? -(int32)encoder_left : (int32)encoder_left)
                    + (encoder_right < 0 ? -(int32)encoder_right : (int32)encoder_right);
         total_distance += step;
+        /* total_distance 是左右轮绝对脉冲之和；11485 是单轮一米脉冲，
+         * 因此车体里程使用左右轮平均值，避免距离约放大一倍。 */
+        total_distance_m = (float)total_distance
+                         / (2.0f * (float)ENCODER_PULSE_PER_METER);
+    }
+    /* 发车标志只控制计时和平均速度统计。 */
+    if (encoder_measure_flag)
+    {
         measure_time_ms += 10;
-        total_distance_m = (float)total_distance / ENCODER_PULSE_PER_METER;
         if (measure_time_ms > 0)
             avg_speed = total_distance_m / ((float)measure_time_ms / 1000.0f);
     }

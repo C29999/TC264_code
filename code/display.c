@@ -255,38 +255,36 @@ void show_draw_edges(void)
                      edge_map_x(image_center), by + 80,
                      RGB565_YELLOW);
 
-    if (left_line_count == 0 && right_line_count == 0 && !cross_line_active)
+    if (left_line_count == 0 && right_line_count == 0)
     {
         show_red_bold(146, 32, "NO POINTS", RGB565_PINK);
+        return;
     }
 
-    /* 普通/候选阶段原样显示旧寻线；ENTER/OUT 只显示十字动态走廊。 */
-    if (cross_flag < CR_ENTER)
+    // 左边线：蓝色
+    for(i=1;i<left_line_count;i++)
     {
-        // 左边线：蓝色
-        for(i=1;i<left_line_count;i++)
-        {
         ips200_draw_line(gray_map_x(left_line_points[i-1][0]), gray_map_y(left_line_points[i-1][1]),
                          gray_map_x(left_line_points[i][0]),   gray_map_y(left_line_points[i][1]),
                          RGB565_BLUE);
         ips200_draw_line(edge_map_x(left_line_points[i-1][0]), edge_map_y(left_line_points[i-1][1]),
                          edge_map_x(left_line_points[i][0]),   edge_map_y(left_line_points[i][1]),
                          RGB565_BLUE);
-        }
+    }
 
-        // 右边线：红色
-        for(i=1;i<right_line_count;i++)
-        {
+    // 右边线：红色
+    for(i=1;i<right_line_count;i++)
+    {
         ips200_draw_line(gray_map_x(right_line_points[i-1][0]), gray_map_y(right_line_points[i-1][1]),
                          gray_map_x(right_line_points[i][0]),   gray_map_y(right_line_points[i][1]),
                          RGB565_RED);
         ips200_draw_line(edge_map_x(right_line_points[i-1][0]), edge_map_y(right_line_points[i-1][1]),
                          edge_map_x(right_line_points[i][0]),   edge_map_y(right_line_points[i][1]),
                          RGB565_RED);
-        }
+    }
 
-        // 中线：绿色，仅使用左右边线同时有效的行
-        {
+    // 中线：绿色，仅使用左右边线同时有效的行
+    {
         int16 lx[MT9V03X_H], rx[MT9V03X_H];
         int16 y2, mx;
         int16 prev_x = -1, prev_y = -1;
@@ -303,7 +301,10 @@ void show_draw_edges(void)
                 rx[right_line_points[i][1]] = right_line_points[i][0];
 
         // 从近端(底部)往远端逐行连线，只绘制双边同时有效的中线
-        for (y2 = MT9V03X_H - 1; y2 >= 0; y2--)
+        // 十字期间横路段（y2 < cv_m0_y）不画真实中线，由橙色虚拟中线 M0-M1 接管
+        {
+            int16 y2_lo = (cross_flag >= CR_ENTER && cv_m0_y >= 0) ? cv_m0_y : 0;
+            for (y2 = MT9V03X_H - 1; y2 >= y2_lo; y2--)
         {
             if (lx[y2] >= 0 && rx[y2] >= 0)
             {
@@ -320,6 +321,7 @@ void show_draw_edges(void)
             }
             prev_x = mx;
             prev_y = y2;
+        }
         }
     }
 
@@ -371,8 +373,7 @@ void show_draw_edges(void)
                          gpx, (gpy < 75) ? gpy + 4 : 79, RGB565_BLUE);
     }
 
-    /* 角点是十字分支内部数据，NONE/START 均不显示。 */
-    if (cross_line_active && cross_flag >= CR_ENTER)
+    /* 近端十字角点：使用 find_corners() 输出的 rpts0s/rpts1s 坐标。 */
     {
         int16 cx, cy;
         uint16 dx, dy, dx0, dx1, dy0, dy1;
@@ -461,23 +462,23 @@ void show_draw_edges(void)
                 ips200_draw_line(dx, dy0, dx, dy1, far_col);
             }
         }
-        }
     }
-    /* 四角点虚拟补线（cross_build_vlines）：黄色 NL-FL/NR-FR 补边线，
+    /* 四角点虚拟补线（cross_build_vlines）：左 NL-FL 紫 / 右 NR-FR 靛蓝补边线，
      * 橙色 M0-M1 补中线。二值图窗口与原图窗口各画一遍。 */
-    if (cross_line_active && cross_flag >= CR_ENTER && cross_vline_valid)
+    if (cross_vline_valid && cross_flag >= CR_ENTER)
     {
-        const uint16 vl_edge_col = RGB565_YELLOW;
-        const uint16 vl_mid_col  = RGB565_MAGENTA;
-        /* 左补边线 NL-FL / 右补边线 NR-FR */
+        const uint16 vl_edge_l_col = 0x801F;  /* 左补边线 紫 */
+        const uint16 vl_edge_r_col = 0x041F;  /* 右补边线 靛蓝 */
+        const uint16 vl_mid_col  = 0xFC00;   /* 橙：与绿色真实中线、补边线区分 */
+        /* 左补边线 NL-FL（紫）/ 右补边线 NR-FR（靛蓝），左右异色避免上位机同色覆盖 */
         ips200_draw_line(edge_map_x(cv_nl_x), edge_map_y(cv_nl_y),
-                         edge_map_x(cv_fl_x), edge_map_y(cv_fl_y), vl_edge_col);
+                         edge_map_x(cv_fl_x), edge_map_y(cv_fl_y), vl_edge_l_col);
         ips200_draw_line(edge_map_x(cv_nr_x), edge_map_y(cv_nr_y),
-                         edge_map_x(cv_fr_x), edge_map_y(cv_fr_y), vl_edge_col);
+                         edge_map_x(cv_fr_x), edge_map_y(cv_fr_y), vl_edge_r_col);
         ips200_draw_line(gray_map_x(cv_nl_x), gray_map_y(cv_nl_y),
-                         gray_map_x(cv_fl_x), gray_map_y(cv_fl_y), vl_edge_col);
+                         gray_map_x(cv_fl_x), gray_map_y(cv_fl_y), vl_edge_l_col);
         ips200_draw_line(gray_map_x(cv_nr_x), gray_map_y(cv_nr_y),
-                         gray_map_x(cv_fr_x), gray_map_y(cv_fr_y), vl_edge_col);
+                         gray_map_x(cv_fr_x), gray_map_y(cv_fr_y), vl_edge_r_col);
         /* 虚拟中线 M0-M1 */
         ips200_draw_line(edge_map_x(cv_m0_x), edge_map_y(cv_m0_y),
                          edge_map_x(cv_m1_x), edge_map_y(cv_m1_y), vl_mid_col);
@@ -503,29 +504,7 @@ void show_draw_edges(void)
             ips200_draw_line(gray_map_x(maze_start_right_x), (gsy > 3) ? gsy - 3 : 0,
                              gray_map_x(maze_start_right_x), (gsy < 76) ? gsy + 3 : 79, RGB565_YELLOW);
         }
-    }}
-static void show_perspective_gray_boundary(void)
-{
-    uint16 i;
-    const uint16 yoff = 188;
-    ips200_show_gray_image(127, yoff, (const uint8 *)img_pers_data, PERS_W, PERS_H, 110, 72, 0);
-    for (i = 1; i < rpts0s_num; i++)
-        ips200_draw_line(edge_map_x((int16)(rpts0s[i-1][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts0s[i-1][1]*pixel_per_meter)), edge_map_x((int16)(rpts0s[i][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts0s[i][1]*pixel_per_meter)), RGB565_BLUE);
-    for (i = 1; i < rpts1s_num; i++)
-        ips200_draw_line(edge_map_x((int16)(rpts1s[i-1][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts1s[i-1][1]*pixel_per_meter)), edge_map_x((int16)(rpts1s[i][0]*pixel_per_meter)), yoff + edge_map_y((int16)(rpts1s[i][1]*pixel_per_meter)), RGB565_RED);
-    if (Lpt0_found && Lpt0_rpts0s_id >= 0 && Lpt0_rpts0s_id < rpts0s_num)
-    {
-        uint16 x=edge_map_x((int16)(rpts0s[Lpt0_rpts0s_id][0]*pixel_per_meter));
-        uint16 y=yoff+edge_map_y((int16)(rpts0s[Lpt0_rpts0s_id][1]*pixel_per_meter));
-        ips200_draw_line(x-4,y,x+4,y,RGB565_MAGENTA); ips200_draw_line(x,y-4,x,y+4,RGB565_MAGENTA);
-    }
-    if (Lpt1_found && Lpt1_rpts1s_id >= 0 && Lpt1_rpts1s_id < rpts1s_num)
-    {
-        uint16 x=edge_map_x((int16)(rpts1s[Lpt1_rpts1s_id][0]*pixel_per_meter));
-        uint16 y=yoff+edge_map_y((int16)(rpts1s[Lpt1_rpts1s_id][1]*pixel_per_meter));
-        ips200_draw_line(x-4,y,x+4,y,RGB565_MAGENTA); ips200_draw_line(x,y-4,x,y+4,RGB565_MAGENTA);
-    }
-}
+     }}
 void display_draw(void)
 {
     // 主循环按固定周期调用显示；直接绘制最近一帧及其巡线结果。
@@ -533,8 +512,6 @@ void display_draw(void)
     if (!display_flog) return;
     ips200_show_gray_image(0, 0, (const uint8 *)mt9v03x_image, MT9V03X_W, MT9V03X_H, 126, 80, 0);
     ips200_show_gray_image(127, 0, (const uint8 *)image_binary, MT9V03X_W, MT9V03X_H, 110, 80, 0);
-    show_perspective_gray_boundary();
-    // ips200_show_gray_image(127, 200, (const uint8 *)img_pers_data, MT9V03X_W, MT9V03X_H, 110, 80, 128);
     show_draw_edges();
 
     if(current_page == PAGE_MAIN)
@@ -555,40 +532,51 @@ void display_draw(void)
         {
             show_red_bold(106, 88, "data", RGB565_RED);
         }
-        sprintf(show_buf,"encoder:%03d",encoder_left);
+        sprintf(show_buf,"encL:%03d",encoder_left);
         show_red_bold(0,108, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"encoder:%03d",encoder_right);
+        sprintf(show_buf,"encR:%03d",encoder_right);
         show_red_bold(0,128, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"speed:%03d",base_speed);
+        sprintf(show_buf,"spd:%03d",base_speed);
         show_red_bold(0,148, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"servo:%05.1f",(double)angle);
+        sprintf(show_buf,"sv:%05.1f",(double)angle);
         show_red_bold(0,168, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"pure:%05.1f",(double)pure_angle);
+        sprintf(show_buf,"pa:%05.1f",(double)pure_angle);
         show_red_bold(0,188, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"gyro:%+06.1f",(double)gyro_z);
+        sprintf(show_buf,"gz:%+05.1f",(double)gyro_z);
         show_red_bold(0,208, show_buf, RGB565_YELLOW);
-        sprintf(show_buf,"aim :%05.2f",(double)aim_distance);
+        sprintf(show_buf,"aim:%04.2f",(double)aim_distance);
         show_red_bold(0,228, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"l_out:%03d",(int)motor_pid_l.output);
+        sprintf(show_buf,"lo:%03d",(int)motor_pid_l.output);
         show_red_bold(0,248, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"r_out:%03d",(int)motor_pid_r.output);
+        sprintf(show_buf,"ro:%03d",(int)motor_pid_r.output);
         show_red_bold(0,268, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"error:%03d",image_error_filter);
+        sprintf(show_buf,"err:%03d",image_error_filter);
         show_red_bold(0,288, show_buf, RGB565_GREEN);
-        sprintf(show_buf,"pts:%03d/%03d",rpts0s_num,rpts1s_num);
+        sprintf(show_buf,"p:%03d/%03d",rpts0s_num,rpts1s_num);
         show_red_bold(108,108, show_buf, RGB565_CYAN);
-        sprintf(show_buf,"ang:%.0f/%.0f",conf1_max*57.3f,conf2_max*57.3f);
+        sprintf(show_buf,"a:%.0f/%.0f",conf1_max*57.3f,conf2_max*57.3f);
         show_red_bold(108,128, show_buf, RGB565_YELLOW);
         sprintf(show_buf,"cL:%d cR:%d",Lpt0_found,Lpt1_found);
         show_red_bold(108,148, show_buf, RGB565_RED);
-        sprintf(show_buf,"turn:%+05.2f",(double)corner_turn);
+        sprintf(show_buf,"trn:%+05.2f",(double)corner_turn);
         show_red_bold(108,168, show_buf, RGB565_YELLOW);
-        sprintf(show_buf,"dist:%05.2fm",(double)total_distance_m);
+        sprintf(show_buf,"CR:%d %s",(int)cross_flag,
+                (cross_flag == CR_NONE) ? "NONE" :
+                (cross_flag == CR_START) ? "START" :
+                (cross_flag == CR_ENTER) ? "ENTER" : "OUT");
+        show_red_bold(108,188, show_buf, RGB565_CYAN);
+        sprintf(show_buf,"d:%04.2fm",(double)total_distance_m);
         show_red_bold(108,208, show_buf, RGB565_PINK);
-        sprintf(show_buf,"avg:%04.2fm/s",(double)avg_speed);
+        sprintf(show_buf,"v:%04.2f",(double)avg_speed);
         show_red_bold(108,228, show_buf, RGB565_PINK);
         sprintf(show_buf,"ST:%d%d%d%d%d%d%d%d",(state_flags&0x80)?1:0,(state_flags&0x40)?1:0,(state_flags&0x20)?1:0,(state_flags&0x10)?1:0,(state_flags&0x08)?1:0,(state_flags&0x04)?1:0,(state_flags&0x02)?1:0,(state_flags&0x01)?1:0);
-        show_red_bold(108,188, show_buf, RGB565_CYAN);
+        show_red_bold(108,248, show_buf, RGB565_CYAN);
+        sprintf(show_buf,"R:%u/%u Y:%d",(unsigned int)left_line_count,(unsigned int)right_line_count,(int)maze_start_y);
+        show_red_bold(108,268, show_buf, RGB565_CYAN);
+        sprintf(show_buf,"E:%d/%d T:%d%d",
+                (int)maze_start_left_x,(int)maze_start_right_x,
+                (int)(touch_boundary0 != 0),(int)(touch_boundary1 != 0));
+        show_red_bold(108,288, show_buf, RGB565_YELLOW);
 
     }
     else if(current_page == PAGE_TUNING)
